@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "726897308141",
+    "project_id": "symphony-music-app-6eddc",
+    "storage_bucket": "symphony-music-app-6eddc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:726897308141:android:368c1f5a578ce5b42fb7e4",
+        "android_client_info": {
+          "package_name": "com.example.symphony.symphony"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "726897308141-qlavtoltl29qb6252so3kpiiskodacnl.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.symphony.symphony",
+            "certificate_hash": "f339c5d1f9d5904e67af3877949778c28d1b9f13"
+          }
+        },
+        {
+          "client_id": "726897308141-55rtppali57hi0misfndj24gmsidp58m.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB_QK4QU8Dh0G4EMYy606S3_-ES9COT7qY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "726897308141-55rtppali57hi0misfndj24gmsidp58m.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

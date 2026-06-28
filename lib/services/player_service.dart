@@ -1,0 +1,624 @@
+import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
+import '../models/song_model.dart';
+import 'package:flutter/foundation.dart';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class PlayerService extends ChangeNotifier {
+  late AudioPlayer _audioPlayer;
+  List<Song> _playlist = [];
+  int _currentIndex = 0;
+  bool _isPlaying = false;
+  Duration _currentPosition = Duration.zero;
+  Duration _totalDuration = Duration.zero;
+  bool _isInitialized = false;
+  final List<String> _playNextOverrideIds = [];
+  bool _isConsumingAutoplay = false;
+
+  AudioPlayer get audioPlayer => _audioPlayer;
+  List<Song> get playlist => _playlist;
+  int get currentIndex => _currentIndex;
+  bool get isPlaying => _isPlaying;
+  Duration get currentPosition => _currentPosition;
+  Duration get totalDuration => _totalDuration;
+
+  Song? get currentSong =>
+      _playlist.isNotEmpty && _currentIndex < _playlist.length
+      ? _playlist[_currentIndex]
+      : null;
+
+  bool get hasNext => _audioPlayer.hasNext || _autoplayEnabled;
+  bool get hasPrevious => _audioPlayer.hasPrevious;
+
+  PlayerService() {
+    _initPlayer();
+  }
+
+  Future<void> _savePlayerState() async {
+    if (_playlist.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final List<Map<String, dynamic>> playlistMap = _playlist.map((s) {
+        final map = s.toMap();
+        map['id'] = s.id;
+        return map;
+      }).toList();
+      await prefs.setString('saved_playlist', jsonEncode(playlistMap));
+      await prefs.setInt('saved_index', _currentIndex);
+    } catch (e) {
+      print('Error saving player state: $e');
+    }
+  }
+
+  Future<void> _savePlayerIndex() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('saved_index', _currentIndex);
+    } catch (e) {
+      print('Error saving player index: $e');
+    }
+  }
+
+  Future<void> _loadSavedState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedPlaylistStr = prefs.getString('saved_playlist');
+      final savedIndex = prefs.getInt('saved_index') ?? 0;
+      final savedAutoplay = prefs.getBool('autoplay_enabled');
+      if (savedAutoplay != null) _autoplayEnabled = savedAutoplay;
+      if (savedPlaylistStr != null) {
+        final List<dynamic> decoded = jsonDecode(savedPlaylistStr);
+        final List<Song> savedSongs = decoded.map((e) {
+          final map = Map<String, dynamic>.from(e);
+          return Song.fromMap(map, map['id'] ?? '');
+        }).toList();
+        if (savedSongs.isNotEmpty) {
+          _playlist = savedSongs;
+          _currentIndex = savedIndex < savedSongs.length ? savedIndex : 0;
+
+          final audioSource = ConcatenatingAudioSource(
+            children: savedSongs.map((s) {
+              return AudioSource.uri(
+                Uri.parse(s.audioUrl),
+                tag: MediaItem(
+                  id: s.id,
+                  album: "Symphony",
+                  title: s.title,
+                  artist: s.artist,
+                  artUri:
+                      (s.coverUrl.isNotEmpty &&
+                          !s.coverUrl.startsWith('asset:'))
+                      ? Uri.parse(s.coverUrl)
+                      : null,
+                ),
+              );
+            }).toList(),
+          );
+          await _audioPlayer.setAudioSource(
+            audioSource,
+            initialIndex: _currentIndex,
+            initialPosition: Duration.zero,
+          );
+          notifyListeners();
+        }
+      }
+    } catch (e) {
+      print('Error loading saved state: $e');
+    }
+  }
+
+  List<Song> _sessionHistory = [];
+  List<Song> get sessionHistory => _sessionHistory;
+
+  List<Song> get effectivePlaylist {
+    if (_playlist.isEmpty) return [];
+    final indices = _audioPlayer.effectiveIndices ?? [];
+    if (indices.length != _playlist.length) {
+      if (_currentIndex >= 0 && _currentIndex < _playlist.length) {
+        return _playlist.sublist(_currentIndex);
+      }
+      return _playlist;
+    }
+    final curEffIdx = currentEffectiveIndex;
+    if (curEffIdx < 0 || curEffIdx >= indices.length) return _playlist;
+    return indices
+        .sublist(curEffIdx)
+        .where((i) => i >= 0 && i < _playlist.length)
+        .map((i) => _playlist[i])
+        .toList();
+  }
+
+  List<Song> get fullEffectivePlaylist {
+    if (_playlist.isEmpty) return [];
+    final indices = _audioPlayer.effectiveIndices ?? [];
+    if (indices.length != _playlist.length) return _playlist;
+    return indices
+        .where((i) => i >= 0 && i < _playlist.length)
+        .map((i) => _playlist[i])
+        .toList();
+  }
+
+  int get currentEffectiveIndex {
+    if (_playlist.isEmpty) return 0;
+    final indices = _audioPlayer.effectiveIndices ?? [];
+    if (indices.isEmpty) return _currentIndex;
+    final index = indices.indexOf(_currentIndex);
+    return index == -1 ? 0 : index;
+  }
+
+  bool _isShuffleModeEnabled = false;
+  LoopMode _loopMode = LoopMode.off;
+  bool _autoplayEnabled = true;
+  List<Song> _autoplayQueue = [];
+  List<Song> get autoplayQueue => _autoplayQueue;
+
+  void populateAutoplayQueue(List<Song> allSongs) {
+    if (_autoplayQueue.length < 10) {
+      final available = allSongs.where((s) => s.audioUrl.isNotEmpty && !_autoplayQueue.any((aq) => aq.id == s.id)).toList();
+      available.shuffle();
+      _autoplayQueue.addAll(available.take(10 - _autoplayQueue.length));
+      notifyListeners();
+    }
+  }
+
+  Future<void> consumeAutoplay(List<Song> allSongs, {bool forcePlay = false}) async {
+    if (_isConsumingAutoplay) return;
+    _isConsumingAutoplay = true;
+    try {
+      if (_autoplayQueue.isEmpty) populateAutoplayQueue(allSongs);
+      if (_autoplayQueue.isNotEmpty) {
+        final song = _autoplayQueue.removeAt(0);
+        await addToQueue(song);
+        
+        if (forcePlay || _audioPlayer.processingState == ProcessingState.completed) {
+          final newIndex = _playlist.length - 1;
+          await Future.delayed(const Duration(milliseconds: 300));
+          await _audioPlayer.seek(Duration.zero, index: newIndex);
+          await play();
+        }
+        populateAutoplayQueue(allSongs);
+      }
+    } finally {
+      _isConsumingAutoplay = false;
+    }
+  }
+  void Function({bool forcePlay})? onQueueEmpty;
+
+  bool get isShuffleModeEnabled => _isShuffleModeEnabled;
+  LoopMode get loopMode => _loopMode;
+  bool get autoplayEnabled => _autoplayEnabled;
+
+  Future<void> toggleAutoplay() async {
+    _autoplayEnabled = !_autoplayEnabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('autoplay_enabled', _autoplayEnabled);
+    notifyListeners();
+  }
+
+  Future<void> _initPlayer() async {
+    // Small delay to ensure JustAudioBackground is fully ready
+    await Future.delayed(const Duration(milliseconds: 500));
+    _audioPlayer = AudioPlayer();
+
+    await _loadSavedState();
+
+    _isInitialized = true;
+
+    _audioPlayer.playerStateStream.listen((state) {
+      _isPlaying = state.playing;
+      notifyListeners();
+      if (state.processingState == ProcessingState.completed) {
+        if (_playNextOverrideIds.isNotEmpty) {
+          final nextId = _playNextOverrideIds.removeAt(0);
+          final index = _playlist.indexWhere((s) => s.id == nextId);
+          if (index != -1) {
+            _audioPlayer.seek(Duration.zero, index: index);
+            return;
+          }
+        }
+        if (_loopMode == LoopMode.off && !_audioPlayer.hasNext) {
+          if (_autoplayEnabled && onQueueEmpty != null) {
+            onQueueEmpty!(forcePlay: true);
+          } else {
+            // If we reached the end and not looping, stop. JustAudio handles looping internally.
+            _audioPlayer.pause();
+            _audioPlayer.seek(Duration.zero, index: 0);
+          }
+        } else if (_loopMode == LoopMode.all && !_audioPlayer.hasNext) {
+          _audioPlayer.seek(Duration.zero, index: 0);
+          _audioPlayer.play();
+        }
+      }
+    });
+
+    _audioPlayer.playbackEventStream.listen((event) {}, onError: (Object e, StackTrace stackTrace) {
+      print('A playback error occurred: $e');
+      // Do not automatically skip to the next song, as this can cause the entire playlist to be skipped if the device goes offline.
+      _isPlaying = false;
+      notifyListeners();
+    });
+
+    _audioPlayer.positionStream.listen((position) {
+      _currentPosition = position;
+      // Removed notifyListeners() to prevent UI lag on every position tick
+    });
+
+    _audioPlayer.durationStream.listen((duration) {
+      _totalDuration = duration ?? Duration.zero;
+      notifyListeners();
+    });
+
+    _audioPlayer.currentIndexStream.listen((index) {
+      if (index != null && index != _currentIndex && index < _playlist.length) {
+        _currentIndex = index;
+
+        // Add to session history if it's a new song play
+        final song = _playlist[_currentIndex];
+        if (_sessionHistory.isEmpty || _sessionHistory.last.id != song.id) {
+          _sessionHistory.add(song);
+        }
+
+        _savePlayerIndex();
+        notifyListeners();
+
+
+      } else if (index != null &&
+          _sessionHistory.isEmpty &&
+          index < _playlist.length) {
+        // First song loaded
+        _sessionHistory.add(_playlist[index]);
+        notifyListeners();
+      }
+    });
+
+    _audioPlayer.shuffleModeEnabledStream.listen((enabled) {
+      _isShuffleModeEnabled = enabled;
+      notifyListeners();
+    });
+
+    _audioPlayer.loopModeStream.listen((mode) {
+      _loopMode = mode;
+      notifyListeners();
+    });
+
+    _audioPlayer.sequenceStateStream.listen((state) {
+      notifyListeners(); // Notify when effective sequence changes (e.g., shuffle)
+    });
+  }
+
+  Future<void> loadPlaylist(List<Song> songs, {int initialIndex = 0}) async {
+    
+    while (!_isInitialized) {
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+
+    Song? targetSong;
+    if (initialIndex >= 0 && initialIndex < songs.length) {
+      targetSong = songs[initialIndex];
+    }
+
+    final validSongs = songs.where((s) => s.audioUrl.isNotEmpty).toList();
+    if (validSongs.isEmpty) return;
+    
+    // Auto-enable shuffle if the queue was previously empty
+    if (_playlist.isEmpty) {
+      await _audioPlayer.setShuffleModeEnabled(true);
+    }
+    
+    _playlist = validSongs;
+
+    int newIndex = 0;
+    if (targetSong != null) {
+      newIndex = validSongs.indexWhere((s) => s.id == targetSong!.id);
+      if (newIndex == -1) newIndex = 0;
+    }
+    _currentIndex = newIndex;
+    _sessionHistory.clear(); // Clear history when loading new playlist
+
+    try {
+      print(
+        "Loading playlist with ${validSongs.length} songs at index $_currentIndex",
+      );
+      final audioSource = ConcatenatingAudioSource(
+        children: validSongs.map((s) {
+          return AudioSource.uri(
+            Uri.parse(s.audioUrl),
+            tag: MediaItem(
+              id: s.id,
+              album: "Symphony",
+              title: s.title,
+              artist: s.artist,
+              artUri:
+                  (s.coverUrl.isNotEmpty && !s.coverUrl.startsWith('asset:'))
+                  ? Uri.parse(s.coverUrl)
+                  : null,
+            ),
+          );
+        }).toList(),
+      );
+      await _audioPlayer.setAudioSource(
+        audioSource,
+        initialIndex: _currentIndex,
+        initialPosition: Duration.zero,
+      );
+      if (kIsWeb) {
+        await _audioPlayer.seek(Duration.zero, index: _currentIndex);
+      }
+      print("Audio source set successfully");
+      _savePlayerState();
+      notifyListeners();
+      await play();
+    } catch (e) {
+      print("Error loading audio source: $e");
+    }
+  }
+
+  Future<void> addNext(Song song) async {
+    _playNextOverrideIds.add(song.id);
+    if (_playlist.isEmpty) {
+      await loadPlaylist([song]);
+      return;
+    }
+
+    final insertIndex = _currentIndex + 1;
+    _playlist.insert(insertIndex, song);
+
+    final source = _audioPlayer.audioSource as ConcatenatingAudioSource?;
+    if (source != null) {
+      await source.insert(
+        insertIndex,
+        AudioSource.uri(
+          Uri.parse(song.audioUrl),
+          tag: MediaItem(
+            id: song.id,
+            album: "Symphony",
+            title: song.title,
+            artist: song.artist,
+            artUri:
+                (song.coverUrl.isNotEmpty &&
+                    !song.coverUrl.startsWith('asset:'))
+                ? Uri.parse(song.coverUrl)
+                : null,
+          ),
+        ),
+      );
+    }
+    _savePlayerState();
+    notifyListeners();
+  }
+
+  Future<void> addToQueue(Song song) async {
+    if (_playlist.isEmpty) {
+      await loadPlaylist([song]);
+      return;
+    }
+
+    _playlist.add(song);
+
+    final source = _audioPlayer.audioSource as ConcatenatingAudioSource?;
+    if (source != null) {
+      await source.add(
+        AudioSource.uri(
+          Uri.parse(song.audioUrl),
+          tag: MediaItem(
+            id: song.id,
+            album: "Symphony",
+            title: song.title,
+            artist: song.artist,
+            artUri:
+                (song.coverUrl.isNotEmpty &&
+                    !song.coverUrl.startsWith('asset:'))
+                ? Uri.parse(song.coverUrl)
+                : null,
+          ),
+        ),
+      );
+    }
+    _savePlayerState();
+    notifyListeners();
+  }
+
+  Future<void> play() async {
+    await _audioPlayer.play();
+  }
+
+  Future<void> pause() async {
+    await _audioPlayer.pause();
+  }
+
+  Future<void> togglePlayPause() async {
+    if (_isPlaying) {
+      await pause();
+    } else {
+      await play();
+    }
+  }
+
+  Future<void> toggleShuffle([List<Song>? allSongs]) async {
+    final newMode = !_isShuffleModeEnabled;
+
+    if (newMode && allSongs != null) {
+      final currentSongIds = _playlist.map((s) => s.id).toSet();
+      final songsToAdd = allSongs
+          .where((s) => !currentSongIds.contains(s.id) && s.audioUrl.isNotEmpty)
+          .toList();
+
+      if (songsToAdd.isNotEmpty) {
+        _playlist.addAll(songsToAdd);
+
+        final newAudioSources = songsToAdd.map((s) {
+          return AudioSource.uri(
+            Uri.parse(s.audioUrl),
+            tag: MediaItem(
+              id: s.id,
+              album: "Symphony",
+              title: s.title,
+              artist: s.artist,
+              artUri:
+                  (s.coverUrl.isNotEmpty && !s.coverUrl.startsWith('asset:'))
+                  ? Uri.parse(s.coverUrl)
+                  : null,
+            ),
+          );
+        }).toList();
+
+        final concatenatingSource =
+            _audioPlayer.audioSource as ConcatenatingAudioSource?;
+        if (concatenatingSource != null) {
+          await concatenatingSource.addAll(newAudioSources);
+        }
+      }
+    }
+
+    await _audioPlayer.setShuffleModeEnabled(newMode);
+    if (newMode) {
+      await _audioPlayer.shuffle();
+    }
+  }
+
+  Future<void> setShuffle(bool value) async {
+    if (_isShuffleModeEnabled == value) return;
+    await _audioPlayer.setShuffleModeEnabled(value);
+    if (value) {
+      await _audioPlayer.shuffle();
+    }
+  }
+
+  Future<void> toggleRepeat() async {
+    if (_loopMode == LoopMode.off) {
+      await _audioPlayer.setLoopMode(LoopMode.all);
+      _loopMode = LoopMode.all;
+    } else if (_loopMode == LoopMode.all) {
+      await _audioPlayer.setLoopMode(LoopMode.one);
+      _loopMode = LoopMode.one;
+    } else {
+      await _audioPlayer.setLoopMode(LoopMode.off);
+      _loopMode = LoopMode.off;
+    }
+    notifyListeners();
+  }
+
+  Future<void> seek(Duration position) async {
+    await _audioPlayer.seek(position);
+  }
+
+  Future<void> skipForward() async {
+    final newPosition = _currentPosition + const Duration(seconds: 10);
+    await seek(newPosition > _totalDuration ? _totalDuration : newPosition);
+  }
+
+  Future<void> skipBackward() async {
+    final newPosition = _currentPosition - const Duration(seconds: 10);
+    await seek(newPosition.isNegative ? Duration.zero : newPosition);
+  }
+
+  Future<void> skipNext() async {
+    if (_currentIndex == _playlist.length - 1 && _autoplayEnabled && onQueueEmpty != null) {
+      onQueueEmpty!(forcePlay: true);
+    } else if (_audioPlayer.hasNext) {
+      await _audioPlayer.seekToNext();
+      await play();
+    } else {
+      if (_loopMode == LoopMode.all) {
+        await _audioPlayer.seek(Duration.zero, index: 0);
+        await play();
+      } else {
+        await _audioPlayer.seek(Duration.zero, index: 0);
+        await pause();
+      }
+    }
+  }
+
+  Future<void> skipPrevious() async {
+    if (_audioPlayer.hasPrevious) {
+      await _audioPlayer.seekToPrevious();
+    } else {
+      await seek(Duration.zero);
+    }
+    await play();
+  }
+
+  Future<void> playNext() => skipNext();
+  Future<void> playPrevious() => skipPrevious();
+
+  Future<void> removeFromQueue(int index) async {
+    if (_playlist.isEmpty || index < 0 || index >= _playlist.length) return;
+    
+    _playlist.removeAt(index);
+    final source = _audioPlayer.audioSource as ConcatenatingAudioSource?;
+    if (source != null) {
+      await source.removeAt(index);
+    }
+    
+    if (_currentIndex > index) {
+      _currentIndex--;
+    }
+    
+    _savePlayerState();
+    notifyListeners();
+  }
+
+
+
+  Future<void> moveToTop(int index) async {
+    await reorderQueue(index, 0);
+  }
+
+  Future<void> moveToNext(int index) async {
+    int targetIndex = _currentIndex + 1;
+    if (index > _currentIndex) {
+      await reorderQueue(index, targetIndex);
+    } else {
+      await reorderQueue(index, _currentIndex);
+    }
+  }
+
+  Future<void> moveToBottom(int index) async {
+    await reorderQueue(index, _playlist.length - 1);
+  }
+
+  Future<void> moveToPrevious(int index) async {
+    int targetIndex = _currentIndex;
+    if (targetIndex < 0) targetIndex = 0;
+    
+    if (index > _currentIndex) {
+      await reorderQueue(index, targetIndex);
+    } else {
+      await reorderQueue(index, targetIndex - 1);
+    }
+  }
+
+  Future<void> reorderQueue(int oldIndex, int newIndex) async {
+    if (_playlist.isEmpty) return;
+    
+    if (oldIndex < 0 || oldIndex >= _playlist.length) return;
+    if (newIndex < 0) newIndex = 0;
+    if (newIndex > _playlist.length) newIndex = _playlist.length;
+    
+    final item = _playlist.removeAt(oldIndex);
+    _playlist.insert(newIndex, item);
+    
+    final source = _audioPlayer.audioSource as ConcatenatingAudioSource?;
+    if (source != null) {
+      await source.move(oldIndex, newIndex);
+    }
+    
+    if (_currentIndex == oldIndex) {
+      _currentIndex = newIndex;
+    } else if (oldIndex < _currentIndex && newIndex >= _currentIndex) {
+      _currentIndex--;
+    } else if (oldIndex > _currentIndex && newIndex <= _currentIndex) {
+      _currentIndex++;
+    }
+    
+    _savePlayerState();
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    super.dispose();
+  }
+}

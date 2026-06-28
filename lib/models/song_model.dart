@@ -1,0 +1,58 @@
+class Song {
+  final String id;
+  final String title;
+  final String artist;
+  final String coverUrl;
+  final String audioUrl;
+  final bool isTrending;
+
+  Song({
+    required this.id,
+    required this.title,
+    required this.artist,
+    required this.coverUrl,
+    required this.audioUrl,
+    this.isTrending = false,
+  });
+
+  factory Song.fromMap(Map<String, dynamic> data, String documentId) {
+    return Song(
+      id: documentId,
+      title: data['title'] ?? 'Unknown Title',
+      artist: data['artist'] ?? 'Unknown Artist',
+      coverUrl:
+          (data['coverUrl'] as String?)?.trim() ??
+          'https://via.placeholder.com/150',
+      audioUrl: (data['audioUrl'] as String?)?.trim() ?? '',
+      isTrending: data['isTrending'] ?? false,
+    );
+  }
+
+  Map<String, dynamic> toMap() {
+    return {
+      'title': title,
+      'artist': artist,
+      'coverUrl': coverUrl,
+      'audioUrl': audioUrl,
+      'isTrending': isTrending,
+    };
+  }
+
+  Song copyWith({
+    String? id,
+    String? title,
+    String? artist,
+    String? coverUrl,
+    String? audioUrl,
+    bool? isTrending,
+  }) {
+    return Song(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      artist: artist ?? this.artist,
+      coverUrl: coverUrl ?? this.coverUrl,
+      audioUrl: audioUrl ?? this.audioUrl,
+      isTrending: isTrending ?? this.isTrending,
+    );
+  }
+}
