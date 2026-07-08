@@ -392,13 +392,16 @@ class _MainScreenState extends State<MainScreen> {
     });
     
     if (_isOffline) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
         final appProvider = Provider.of<AppProvider>(context, listen: false);
+        await appProvider.loadDownloadedSongs(); // Ensure it's loaded before checking
+        
         if (!kIsWeb && appProvider.downloadedSongs.isNotEmpty) {
            final downloadedPlaylist = {
              'name': 'Downloads',
              'songs': appProvider.downloadedSongs,
            };
+
            Navigator.push(
              context,
              MaterialPageRoute(

@@ -89,7 +89,7 @@ class AppProvider extends ChangeNotifier {
   AppProvider() {
     _loadSettings();
     _initAuth();
-    _loadDownloadedSongs();
+    loadDownloadedSongs();
   }
 
   Future<void> _loadSettings() async {
@@ -1227,7 +1227,7 @@ class AppProvider extends ChangeNotifier {
 
   // --- Downloads Functionality ---
 
-  Future<void> _loadDownloadedSongs() async {
+  Future<void> loadDownloadedSongs() async {
     final prefs = await SharedPreferences.getInstance();
     if (prefs.containsKey('downloaded_songs')) {
       try {

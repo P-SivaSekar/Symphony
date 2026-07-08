@@ -5,7 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 class UpdateService {
   // Current app version constant
-  static const String currentAppVersion = "1.0.0.1";
+  static const String currentAppVersion = "1.0.0.2";
 
   // URL to get the latest version metadata (Firebase Hosting is primary)
   static const String primaryVersionUrl = "https://symphony-music-app-6eddc.web.app/version.json";
