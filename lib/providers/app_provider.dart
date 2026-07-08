@@ -1293,14 +1293,26 @@ class AppProvider extends ChangeNotifier {
       final dir = await getApplicationDocumentsDirectory();
       final File file = File('${dir.path}/${song.id}.mp3');
 
-      final response = await http.get(Uri.parse(song.audioUrl));
-      if (response.statusCode == 200) {
-        await file.writeAsBytes(response.bodyBytes);
+      String urlStr = song.audioUrl;
+      if (urlStr.startsWith('http://')) {
+        urlStr = urlStr.replaceFirst('http://', 'https://');
+      }
+
+      final request = http.Request('GET', Uri.parse(urlStr));
+      final streamedResponse = await http.Client().send(request);
+      
+      if (streamedResponse.statusCode == 200 || streamedResponse.statusCode == 206) {
+        final sink = file.openWrite();
+        await streamedResponse.stream.pipe(sink);
+        await sink.close();
 
         final downloadedSong = song.copyWith(audioUrl: 'file://${file.path}');
 
         _downloadedSongs.insert(0, downloadedSong);
         await _saveDownloadedSongs();
+        print("Download complete for ${song.title}");
+      } else {
+        print("Download failed with status: ${streamedResponse.statusCode}");
       }
     } catch (e) {
       print("Error downloading song ${song.id}: $e");
