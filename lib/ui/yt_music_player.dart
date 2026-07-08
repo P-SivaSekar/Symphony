@@ -94,6 +94,129 @@ class _MiniPlayerContent extends StatelessWidget {
     }
 
     final textColor = Theme.of(context).colorScheme.onSurface;
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isWide = screenWidth > 600;
+
+    final controlsRow = Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        IconButton(
+          iconSize: isWide ? 32 : 24,
+          icon: Icon(
+            Icons.skip_previous,
+            color: textColor,
+          ),
+          onPressed: playerService.hasPrevious ? () => playerService.playPrevious() : null,
+        ),
+        IconButton(
+          iconSize: isWide ? 44 : 24,
+          icon: Icon(
+            playerService.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+            color: textColor,
+          ),
+          onPressed: () {
+            if (playerService.isPlaying) playerService.pause();
+            else playerService.play();
+          },
+        ),
+        IconButton(
+          iconSize: isWide ? 32 : 24,
+          icon: Icon(
+            Icons.skip_next,
+            color: textColor,
+          ),
+          onPressed: playerService.hasNext ? () => playerService.playNext() : null,
+        ),
+      ],
+    );
+
+    if (isWide) {
+      return GlassContainer(
+        height: 64.0,
+        width: double.infinity,
+        borderRadius: 0,
+        blurSigmaX: 20,
+        blurSigmaY: 20,
+        blurColor: isDark ? Colors.black.withOpacity(0.85) : Colors.white.withOpacity(0.85),
+        border: Border(
+          top: BorderSide(
+            color: isDark ? Colors.white12 : Colors.black.withOpacity(0.08),
+            width: 0.5,
+          )
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              flex: 1,
+              child: Row(
+                children: [
+                  const SizedBox(width: 24),
+                  Hero(
+                    tag: 'cover_${song.id}',
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(4.0),
+                      child: SizedBox(
+                        width: 46,
+                        height: 46,
+                        child: image,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        TextScroll(
+                          song.title,
+                          mode: TextScrollMode.endless,
+                          intervalSpaces: 40,
+                          velocity: const Velocity(pixelsPerSecond: Offset(30, 0)),
+                          delayBefore: const Duration(seconds: 2),
+                          pauseBetween: const Duration(seconds: 2),
+                          style: TextStyle(
+                            color: textColor,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                          selectable: false,
+                        ),
+                        const SizedBox(height: 3),
+                        TextScroll(
+                          song.artist,
+                          mode: TextScrollMode.endless,
+                          intervalSpaces: 40,
+                          velocity: const Velocity(pixelsPerSecond: Offset(30, 0)),
+                          delayBefore: const Duration(seconds: 2),
+                          pauseBetween: const Duration(seconds: 2),
+                          style: TextStyle(
+                            color: textColor.withOpacity(0.6),
+                            fontSize: 12,
+                          ),
+                          selectable: false,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              flex: 1,
+              child: Center(
+                child: controlsRow,
+              ),
+            ),
+            const Expanded(
+              flex: 1,
+              child: SizedBox(),
+            ),
+          ],
+        ),
+      );
+    }
 
     return GlassContainer(
       height: 64.0,
@@ -159,30 +282,7 @@ class _MiniPlayerContent extends StatelessWidget {
               ],
             ),
           ),
-          IconButton(
-            icon: Icon(
-              Icons.skip_previous,
-              color: textColor,
-            ),
-            onPressed: playerService.hasPrevious ? () => playerService.playPrevious() : null,
-          ),
-          IconButton(
-            icon: Icon(
-              playerService.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-              color: textColor,
-            ),
-            onPressed: () {
-              if (playerService.isPlaying) playerService.pause();
-              else playerService.play();
-            },
-          ),
-          IconButton(
-            icon: Icon(
-              Icons.skip_next,
-              color: textColor,
-            ),
-            onPressed: playerService.hasNext ? () => playerService.playNext() : null,
-          ),
+          controlsRow,
           const SizedBox(width: 8),
         ],
       ),
