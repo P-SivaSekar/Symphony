@@ -915,17 +915,20 @@ class AppProvider extends ChangeNotifier {
       try {
         final query = Uri.encodeComponent(song.title);
         final response = await http.get(Uri.parse(
-          'https://www.jiosaavn.com/api.php?__call=autocomplete.get&query=$query&_format=json&_marker=0'
+          'https://jiosaavn-api.vercel.app/search?query=$query'
         ));
         
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
           String? cover;
           
-          if (data['songs'] != null && data['songs']['data'] != null && data['songs']['data'].isNotEmpty) {
-            cover = data['songs']['data'][0]['image'] as String?;
-          } else if (data['albums'] != null && data['albums']['data'] != null && data['albums']['data'].isNotEmpty) {
-            cover = data['albums']['data'][0]['image'] as String?;
+          if (data['status'] == true && data['results'] != null && data['results'].isNotEmpty) {
+            final firstResult = data['results'][0];
+            if (firstResult['images'] != null && firstResult['images']['500x500'] != null) {
+              cover = firstResult['images']['500x500'] as String?;
+            } else {
+              cover = firstResult['image'] as String?;
+            }
           }
           
           if (cover != null && cover.isNotEmpty) {
