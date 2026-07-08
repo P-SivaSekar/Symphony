@@ -1326,5 +1326,96 @@ class AppProvider extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  // Cover fixing state
+  int fixCoversTotal = 0;
+  int fixCoversCurrent = 0;
+  String fixCoversStatus = '';
+  bool isFixingCovers = false;
+
+  Future<void> fixAllCoversNative() async {
+    if (isFixingCovers) return;
+    
+    isFixingCovers = true;
+    fixCoversTotal = _allSongs.length;
+    fixCoversCurrent = 0;
+    fixCoversStatus = 'Starting...';
+    notifyListeners();
+
+    try {
+      final querySnapshot = await FirebaseFirestore.instance.collection('songs').get();
+      final docs = querySnapshot.docs;
+      
+      for (var i = 0; i < docs.length; i++) {
+        final doc = docs[i];
+        final data = doc.data();
+        final title = data['title'] as String? ?? '';
+        final artist = data['artist'] as String? ?? '';
+        
+        fixCoversCurrent = i + 1;
+        fixCoversStatus = 'Processing: $title';
+        notifyListeners();
+
+        String searchTerm = title;
+        if (artist.isNotEmpty && 
+            artist.toLowerCase() != 'unknown' && 
+            !artist.toLowerCase().contains('unknown') && 
+            !artist.toLowerCase().contains('various')) {
+          searchTerm += ' $artist';
+        } else {
+          searchTerm += ' Tamil';
+        }
+
+        String? newCoverUrl;
+
+        Future<String?> searchJioSaavn(String query) async {
+          try {
+            final encodedQuery = Uri.encodeComponent(query);
+            final url = 'https://www.jiosaavn.com/api.php?_format=json&_marker=0&api_version=4&ctx=web6dot0&n=5&p=1&q=$encodedQuery&__call=search.getResults';
+            final response = await http.get(Uri.parse(url));
+            if (response.statusCode == 200) {
+              final respData = jsonDecode(response.body);
+              if (respData != null && respData['results'] != null && (respData['results'] as List).isNotEmpty) {
+                final firstResult = respData['results'][0];
+                String image = firstResult['image'] as String? ?? '';
+                if (image.isNotEmpty) {
+                  image = image.replaceAll('150x150', '500x500');
+                  image = image.replaceAll('50x50', '500x500');
+                  return image;
+                }
+              }
+            }
+          } catch (e) {
+            print("Error fetching $query: $e");
+          }
+          return null;
+        }
+
+        newCoverUrl = await searchJioSaavn(searchTerm);
+        if (newCoverUrl == null) {
+          newCoverUrl = await searchJioSaavn('$title Tamil');
+        }
+        if (newCoverUrl == null) {
+          newCoverUrl = await searchJioSaavn(title);
+        }
+
+        if (newCoverUrl != null) {
+          final currentCoverUrl = data['coverUrl'] as String? ?? '';
+          if (currentCoverUrl != newCoverUrl) {
+            await doc.reference.update({'coverUrl': newCoverUrl});
+            print("Updated '$title' to $newCoverUrl");
+          }
+        }
+        
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
+      fixCoversStatus = 'Finished!';
+    } catch (e) {
+      fixCoversStatus = 'Error: $e';
+    } finally {
+      isFixingCovers = false;
+      notifyListeners();
+    }
+  }
 }
 

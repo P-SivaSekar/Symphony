@@ -1809,6 +1809,38 @@ class _ManageSongsPageState extends State<_ManageSongsPage> {
                   ),
                 ),
                 const Spacer(),
+                if (appProvider.isFixingCovers)
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            appProvider.fixCoversStatus,
+                            style: TextStyle(color: primaryColor, fontSize: 10),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          LinearProgressIndicator(
+                            value: appProvider.fixCoversTotal > 0
+                                ? appProvider.fixCoversCurrent / appProvider.fixCoversTotal
+                                : null,
+                            minHeight: 2,
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  IconButton(
+                    icon: Icon(Icons.auto_fix_high, color: primaryColor),
+                    tooltip: 'Fix Missing/Wrong Covers',
+                    onPressed: () {
+                      appProvider.fixAllCoversNative();
+                    },
+                  ),
                 Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
