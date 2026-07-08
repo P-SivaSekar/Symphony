@@ -7,7 +7,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:mailer/mailer.dart';
 import 'package:mailer/smtp_server.dart';
 import '../providers/app_provider.dart';
-import 'glassmorphic_component.dart';
 
 class OtpScreen extends StatefulWidget {
   const OtpScreen({super.key});
@@ -34,7 +33,6 @@ class _OtpScreenState extends State<OtpScreen> {
     final email = FirebaseAuth.instance.currentUser?.email;
     if (email == null) return;
 
-    // Use the provided Gmail App Password
     String username = AppConstants.adminEmail;
     String password = AppConstants.adminAppPassword;
 
@@ -67,7 +65,7 @@ class _OtpScreenState extends State<OtpScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error 535: Google App Password Revoked. Contact Admin.')),
+          const SnackBar(content: Text('Error 535: Google App Password Revoked. Contact Admin.')),
         );
       }
       print("Email Error: $e");
@@ -86,7 +84,6 @@ class _OtpScreenState extends State<OtpScreen> {
     }
 
     if (enteredOtp == _generatedOtp) {
-      // Verified successfully!
       Provider.of<AppProvider>(context, listen: false).verifyOtpSession();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -112,144 +109,124 @@ class _OtpScreenState extends State<OtpScreen> {
     final primaryColor = theme.colorScheme.primary;
     final textColor = theme.colorScheme.onSurface;
 
+    final inputFillColor = isDark 
+        ? Colors.white.withOpacity(0.08) 
+        : Colors.black.withOpacity(0.04);
+
     return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      body: Stack(
-        children: [
-          Container(
-            decoration: BoxDecoration(
-              color: isDark ? null : theme.scaffoldBackgroundColor,
-              gradient: isDark
-                  ? const LinearGradient(
-                      colors: [
-                        Colors.black,
-                        Colors.black,
-                        Colors.black,
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    )
-                  : null,
-            ),
-          ),
-          Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: GlassContainer(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
+      backgroundColor: isDark ? const Color(0xFF030205) : Colors.white,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: primaryColor.withOpacity(0.1),
+                    ),
+                    child: Icon(
                       Icons.mark_email_read_outlined,
                       size: 48,
                       color: primaryColor,
                     ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'Email Verification',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: textColor,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Verify Your Identity',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: textColor,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'We sent a 6-digit OTP code to your registered email. It remains valid for 10 minutes.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: textColor.withOpacity(0.55), fontSize: 14),
+                ),
+                const SizedBox(height: 36),
+                TextField(
+                  controller: _otpController,
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: textColor,
+                    fontSize: 28,
+                    letterSpacing: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  decoration: InputDecoration(
+                    counterText: '',
+                    filled: true,
+                    fillColor: inputFillColor,
+                    hintText: '000000',
+                    hintStyle: TextStyle(color: textColor.withOpacity(0.2)),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 18),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: primaryColor, width: 1.5),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 32),
+                ElevatedButton(
+                  onPressed: _verifyOtp,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    foregroundColor: isDark ? Colors.black : Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(28),
+                    ),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    'Verify OTP',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton(
+                      onPressed: _cancel,
+                      child: const Text(
+                        'Cancel Login',
+                        style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'We have sent a 6-digit OTP to your email. It is valid for 10 minutes.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: textColor.withOpacity(0.7)),
-                    ),
-                    const SizedBox(height: 32),
-                    TextField(
-                      controller: _otpController,
-                      keyboardType: TextInputType.number,
-                      maxLength: 6,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: textColor,
-                        fontSize: 32,
-                        letterSpacing: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                      decoration: InputDecoration(
-                        counterText: '',
-                        hintText: '',
-                        hintStyle: TextStyle(color: textColor.withOpacity(0.3)),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(
-                            color: textColor.withOpacity(0.25),
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: BorderSide(
-                            color: primaryColor,
-                            width: 1.5,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-                    SizedBox(
-                      width: double.infinity,
-                      child: GlassContainer(
-                        borderRadius: 30,
-                        child: ElevatedButton(
-                          onPressed: _verifyOtp,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.transparent,
-                            shadowColor: Colors.transparent,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              side: BorderSide(color: primaryColor, width: 1.5),
-                            ),
-                          ),
-                          child: Text(
-                            'Verify OTP',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: textColor,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    FittedBox(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          TextButton(
-                            onPressed: _cancel,
-                            child: const Text(
-                              'Cancel Login',
-                              style: TextStyle(color: Colors.redAccent),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          TextButton(
-                            onPressed: _generateAndSendOtp,
-                            child: Text(
-                              'Resend OTP',
-                              style: TextStyle(color: primaryColor),
-                            ),
-                          ),
-                        ],
+                    TextButton(
+                      onPressed: _generateAndSendOtp,
+                      child: Text(
+                        'Resend OTP',
+                        style: TextStyle(color: primaryColor, fontWeight: FontWeight.bold),
                       ),
                     ),
                   ],
                 ),
-              ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
 }
-
-

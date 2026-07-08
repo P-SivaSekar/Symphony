@@ -18,6 +18,7 @@ import 'firebase_options.dart';
 
 import 'providers/app_provider.dart';
 import 'services/player_service.dart';
+import 'services/update_service.dart';
 import 'ui/auth_screen.dart';
 import 'ui/home_screen.dart';
 import 'ui/search_screen.dart';
@@ -80,7 +81,12 @@ void main() async {
   
   if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
     try {
-      await FlutterDisplayMode.setHighRefreshRate();
+      final modes = await FlutterDisplayMode.supported;
+      if (modes.isNotEmpty) {
+        final sorted = List<DisplayMode>.from(modes)
+          ..sort((a, b) => b.refreshRate.compareTo(a.refreshRate));
+        await FlutterDisplayMode.setPreferredMode(sorted.first);
+      }
     } catch (e) {
       print("Error setting high refresh rate: $e");
     }
@@ -210,7 +216,6 @@ class SymphonyApp extends StatelessWidget {
         pageTransitionsTheme: const PageTransitionsTheme(
           builders: {
             TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
-            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
           },
         ),
       ),
@@ -227,7 +232,6 @@ class SymphonyApp extends StatelessWidget {
         pageTransitionsTheme: const PageTransitionsTheme(
           builders: {
             TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
-            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
           },
         ),
       ),
@@ -256,6 +260,9 @@ class _AuthenticationWrapperState extends State<AuthenticationWrapper> {
     _checkIntro();
     pendingSongPlayNotifier.addListener(_onPendingSongPlay);
     pendingAdminTabNotifier.addListener(_onPendingAdminTab);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      UpdateService.checkVersion(context);
+    });
   }
 
   Future<void> _checkIntro() async {
@@ -468,7 +475,17 @@ class _MainScreenState extends State<MainScreen> {
               borderRadius: 0,
               blurSigmaX: 20,
               blurSigmaY: 20,
-              border: Border(top: BorderSide(color: Theme.of(context).brightness == Brightness.dark ? Colors.white10 : Colors.black12)),
+              blurColor: Theme.of(context).brightness == Brightness.dark 
+                  ? Colors.black.withOpacity(0.85) 
+                  : Colors.white.withOpacity(0.85),
+              border: Border(
+                top: BorderSide(
+                  color: (playerService.playlist.isNotEmpty && playerService.currentSong != null) 
+                      ? Colors.transparent 
+                      : (Theme.of(context).brightness == Brightness.dark ? Colors.white12 : Colors.black.withOpacity(0.08)),
+                  width: 0.5,
+                ),
+              ),
               
               child: Theme(
                 data: Theme.of(context).copyWith(

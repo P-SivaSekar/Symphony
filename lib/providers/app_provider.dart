@@ -17,6 +17,9 @@ import 'package:http/http.dart' as http;
 import '../models/notification_model.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter_displaymode/flutter_displaymode.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter/services.dart';
 import '../main.dart';
 class AppProvider extends ChangeNotifier {
   User? _user;
@@ -27,7 +30,7 @@ class AppProvider extends ChangeNotifier {
   bool _isLoading = false;
   bool isPlaylistsLoading = false;
   bool _isOtpVerifiedSession = true; // Default true so auto-logins bypass OTP
-  ThemeMode _themeMode = ThemeMode.dark;
+  ThemeMode _themeMode = ThemeMode.system;
   bool _notificationsEnabled = true;
   List<Playlist> _globalPlaylists = [];
   List<Playlist> _userPlaylists = [];
@@ -104,10 +107,9 @@ class AppProvider extends ChangeNotifier {
           _themeMode = ThemeMode.system;
       }
     } else {
-      // Legacy fallback
-      final isDark = prefs.getBool('isDarkTheme') ?? true;
-      _themeMode = isDark ? ThemeMode.dark : ThemeMode.light;
+      _themeMode = ThemeMode.system;
     }
+    
     
     _notificationsEnabled = prefs.getBool('notifications_enabled') ?? true;
     notifyListeners();
@@ -450,6 +452,17 @@ class AppProvider extends ChangeNotifier {
   }
 
   Future<void> toggleNotifications() async {
+    if (!_notificationsEnabled) {
+      // User is turning notifications ON, request permission
+      final status = await Permission.notification.status;
+      if (!status.isGranted) {
+        final requestStatus = await Permission.notification.request();
+        if (!requestStatus.isGranted) {
+          // Keep notifications false if permission is denied
+          return;
+        }
+      }
+    }
     _notificationsEnabled = !_notificationsEnabled;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
@@ -862,11 +875,16 @@ class AppProvider extends ChangeNotifier {
         });
         
         _allSongs = docs
-            .map((doc) => Song.fromMap(doc.data(), doc.id))
+            .map((doc) {
+              final s = Song.fromMap(doc.data(), doc.id);
+              print("LOADED SONG FROM FIRESTORE -> ID: ${s.id} | Title: '${s.title}' | CoverUrl: '${s.coverUrl}'");
+              return s;
+            })
             .toList();
         _trendingSongs = _allSongs.where((song) => song.isTrending).toList();
+        _resolveSaavnCovers(); // Fetch correct JioSaavn covers in the background
       } else {
-        // Firestore songs collection is empty — load demo data so the UI isn't blank.
+        print("Firestore songs collection is empty!");
         _loadDemoData();
       }
     } catch (e) {
@@ -874,6 +892,56 @@ class AppProvider extends ChangeNotifier {
       _loadDemoData();
     } finally {
       _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _resolveSaavnCovers() async {
+    final prefs = await SharedPreferences.getInstance();
+    bool updated = false;
+
+    for (int i = 0; i < _allSongs.length; i++) {
+      final song = _allSongs[i];
+      if (song.coverUrl.startsWith('https://c.saavncdn.com')) continue;
+
+      final cacheKey = 'saavn_cover_${song.id}';
+      final cachedUrl = prefs.getString(cacheKey);
+      if (cachedUrl != null && cachedUrl.isNotEmpty) {
+        _allSongs[i] = song.copyWith(coverUrl: cachedUrl);
+        updated = true;
+        continue;
+      }
+
+      try {
+        final query = Uri.encodeComponent(song.title);
+        final response = await http.get(Uri.parse(
+          'https://www.jiosaavn.com/api.php?__call=autocomplete.get&query=$query&_format=json&_marker=0'
+        ));
+        
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          String? cover;
+          
+          if (data['songs'] != null && data['songs']['data'] != null && data['songs']['data'].isNotEmpty) {
+            cover = data['songs']['data'][0]['image'] as String?;
+          } else if (data['albums'] != null && data['albums']['data'] != null && data['albums']['data'].isNotEmpty) {
+            cover = data['albums']['data'][0]['image'] as String?;
+          }
+          
+          if (cover != null && cover.isNotEmpty) {
+            cover = cover.replaceAll('50x50', '500x500').replaceAll('150x150', '500x500');
+            _allSongs[i] = song.copyWith(coverUrl: cover);
+            await prefs.setString(cacheKey, cover);
+            updated = true;
+          }
+        }
+      } catch (e) {
+        print("Error resolving cover for ${song.title}: $e");
+      }
+    }
+
+    if (updated) {
+      _trendingSongs = _allSongs.where((song) => song.isTrending).toList();
       notifyListeners();
     }
   }
@@ -918,30 +986,30 @@ class AppProvider extends ChangeNotifier {
     _allSongs = [
       Song(
         id: 'demo_1',
-        title: 'Chill Vibes',
-        artist: 'Lofi Records',
+        title: 'Adi Podi',
+        artist: 'Hiphop Tamizha',
         coverUrl:
-            'https://images.unsplash.com/photo-1459749411177-042180ce673f?auto=format&fit=crop&q=80&w=600',
+            'https://c.saavncdn.com/803/Adi-Podi-From-Meesaya-Murukku-2-Tamil-2026-20260618113605-500x500.jpg',
         audioUrl:
             'https://cdn.pixabay.com/audio/2022/05/27/audio_1808f3030e.mp3',
         isTrending: true,
       ),
       Song(
         id: 'demo_2',
-        title: 'Cyberpunk Drive',
-        artist: 'SynthWave',
+        title: 'Vaathi Coming',
+        artist: 'Anirudh Ravichander',
         coverUrl:
-            'https://images.unsplash.com/photo-1493225255756-d9584f8606e9?auto=format&fit=crop&q=80&w=600',
+            'https://c.saavncdn.com/225/Master-Tamil-2020-20201217032731-500x500.jpg',
         audioUrl:
             'https://cdn.pixabay.com/audio/2022/03/10/audio_c8c8a73467.mp3',
         isTrending: false,
       ),
       Song(
         id: 'demo_3',
-        title: 'Ethereal Dreams',
-        artist: 'Ambient Sky',
+        title: 'Rowdy Baby',
+        artist: 'Dhanush & Dhee',
         coverUrl:
-            'https://images.unsplash.com/photo-1514525253361-b83f85df0f5c?auto=format&fit=crop&q=80&w=600',
+            'https://c.saavncdn.com/344/Maari-2-Tamil-2018-20181105151532-500x500.jpg',
         audioUrl:
             'https://cdn.pixabay.com/audio/2022/01/21/audio_31b5810d57.mp3',
         isTrending: true,

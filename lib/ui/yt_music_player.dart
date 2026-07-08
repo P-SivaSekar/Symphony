@@ -18,6 +18,8 @@ class YTMusicPlayer extends StatelessWidget {
     }
     
     final bottomNavHeight = (hasBottomNav ? kBottomNavigationBarHeight : 0.0) + MediaQuery.of(context).padding.bottom;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return Positioned(
       left: 0,
@@ -28,8 +30,22 @@ class YTMusicPlayer extends StatelessWidget {
         onTap: () {
           Navigator.push(
             context,
-            MaterialPageRoute(
-              builder: (_) => const PlayerScreen(hideCover: false),
+            PageRouteBuilder(
+              pageBuilder: (context, animation, secondaryAnimation) => const PlayerScreen(hideCover: false),
+              transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                const begin = Offset(0.0, 1.0);
+                const end = Offset.zero;
+                const curve = Curves.easeInOutCubic;
+                var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+                return SlideTransition(
+                  position: animation.drive(tween),
+                  child: FadeTransition(
+                    opacity: animation,
+                    child: child,
+                  ),
+                );
+              },
+              transitionDuration: const Duration(milliseconds: 400),
             ),
           );
         },
@@ -47,6 +63,7 @@ class YTMusicPlayer extends StatelessWidget {
           child: _MiniPlayerContent(
             song: playerService.currentSong!,
             playerService: playerService,
+            isDark: isDark,
           ),
         ),
       ),
@@ -57,10 +74,12 @@ class YTMusicPlayer extends StatelessWidget {
 class _MiniPlayerContent extends StatelessWidget {
   final dynamic song;
   final PlayerService playerService;
+  final bool isDark;
   
   const _MiniPlayerContent({
     required this.song,
     required this.playerService,
+    required this.isDark,
   });
 
   @override
@@ -71,28 +90,36 @@ class _MiniPlayerContent extends StatelessWidget {
     } else if (song.coverUrl.startsWith('asset:')) {
       image = Image.asset(song.coverUrl.replaceFirst('asset:', ''), fit: BoxFit.cover);
     } else {
-      image = Image.network(song.coverUrl, fit: BoxFit.cover, cacheWidth: 800, errorBuilder: (_,__,___) => Container(color: Colors.black12, child: const Icon(Icons.music_note, size: 20)));
+      image = Image.network(song.coverUrl, fit: BoxFit.cover, errorBuilder: (_,__,___) => Container(color: Colors.black12, child: const Icon(Icons.music_note, size: 20)));
     }
+
+    final textColor = Theme.of(context).colorScheme.onSurface;
 
     return GlassContainer(
       height: 64.0,
       width: double.infinity,
       borderRadius: 0,
+      blurSigmaX: 20,
+      blurSigmaY: 20,
+      blurColor: isDark ? Colors.black.withOpacity(0.85) : Colors.white.withOpacity(0.85),
       border: Border(
         top: BorderSide(
-          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.1),
+          color: isDark ? Colors.white12 : Colors.black.withOpacity(0.08),
           width: 0.5,
         )
       ),
       child: Row(
         children: [
           const SizedBox(width: 16),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4.0),
-            child: SizedBox(
-              width: 44,
-              height: 44,
-              child: image,
+          Hero(
+            tag: 'cover_${song.id}',
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(4.0),
+              child: SizedBox(
+                width: 44,
+                height: 44,
+                child: image,
+              ),
             ),
           ),
           const SizedBox(width: 12),
@@ -104,12 +131,12 @@ class _MiniPlayerContent extends StatelessWidget {
                 TextScroll(
                   song.title,
                   mode: TextScrollMode.endless,
-                                          intervalSpaces: 40,
+                  intervalSpaces: 40,
                   velocity: const Velocity(pixelsPerSecond: Offset(30, 0)),
                   delayBefore: const Duration(seconds: 2),
                   pauseBetween: const Duration(seconds: 2),
                   style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface,
+                    color: textColor,
                     fontWeight: FontWeight.w600,
                     fontSize: 14,
                   ),
@@ -119,12 +146,12 @@ class _MiniPlayerContent extends StatelessWidget {
                 TextScroll(
                   song.artist,
                   mode: TextScrollMode.endless,
-                                          intervalSpaces: 40,
+                  intervalSpaces: 40,
                   velocity: const Velocity(pixelsPerSecond: Offset(30, 0)),
                   delayBefore: const Duration(seconds: 2),
                   pauseBetween: const Duration(seconds: 2),
                   style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                    color: textColor.withOpacity(0.6),
                     fontSize: 12,
                   ),
                   selectable: false,
@@ -135,14 +162,14 @@ class _MiniPlayerContent extends StatelessWidget {
           IconButton(
             icon: Icon(
               Icons.skip_previous,
-              color: Theme.of(context).colorScheme.onSurface,
+              color: textColor,
             ),
             onPressed: playerService.hasPrevious ? () => playerService.playPrevious() : null,
           ),
           IconButton(
             icon: Icon(
               playerService.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-              color: Theme.of(context).colorScheme.onSurface,
+              color: textColor,
             ),
             onPressed: () {
               if (playerService.isPlaying) playerService.pause();
@@ -152,7 +179,7 @@ class _MiniPlayerContent extends StatelessWidget {
           IconButton(
             icon: Icon(
               Icons.skip_next,
-              color: Theme.of(context).colorScheme.onSurface,
+              color: textColor,
             ),
             onPressed: playerService.hasNext ? () => playerService.playNext() : null,
           ),

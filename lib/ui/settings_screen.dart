@@ -39,7 +39,7 @@ class SettingsScreen extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
               children: [
-                _buildSectionHeader("Appearance", textColor, primaryColor),
+                 _buildSectionHeader("Appearance", textColor, primaryColor),
                 _buildListTile(
                   icon: Icons.color_lens,
                   title: "Theme",
@@ -47,6 +47,7 @@ class SettingsScreen extends StatelessWidget {
                   textColor: textColor,
                   onTap: () => _showThemeSelectionDialog(context, appProvider),
                 ),
+
                 const SizedBox(height: 24),
                 _buildSectionHeader("Account", textColor, primaryColor),
                 _buildListTile(
@@ -61,9 +62,20 @@ class SettingsScreen extends StatelessWidget {
                     );
                   },
                 ),
+                _buildListTile(
+                  icon: Icons.logout,
+                  title: "Logout",
+                  subtitle: "Sign out of your Symphony account",
+                  textColor: textColor,
+                  onTap: () {
+                    Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
+                    appProvider.logout();
+                  },
+                ),
                 const SizedBox(height: 24),
                 _buildSectionHeader("Notifications", textColor, primaryColor),
                 _buildSwitchTile(
+                  context: context,
                   icon: Icons.notifications_active,
                   title: "Push Notifications",
                   subtitle: "Enable or disable local notifications",
@@ -76,6 +88,7 @@ class SettingsScreen extends StatelessWidget {
                 const SizedBox(height: 24),
                 _buildSectionHeader("Playback", textColor, primaryColor),
                 _buildSwitchTile(
+                  context: context,
                   icon: Icons.auto_awesome,
                   title: "Autoplay",
                   subtitle: "Play similar songs when queue ends",
@@ -85,27 +98,6 @@ class SettingsScreen extends StatelessWidget {
                     playerService.toggleAutoplay();
                   },
                 ),
-              const SizedBox(height: 48),
-              Center(
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
-                    appProvider.logout();
-                  },
-                  icon: const Icon(Icons.logout, color: Colors.redAccent),
-                  label: const Text(
-                    "Logout",
-                    style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: Colors.redAccent),
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                ),
-              ),
               ],
             ),
           ),
@@ -222,6 +214,8 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
+
+
   Widget _buildThemeRadio({
     required BuildContext context,
     required String title,
@@ -244,6 +238,7 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Widget _buildSwitchTile({
+    required BuildContext context,
     required IconData icon,
     required String title,
     required String subtitle,
@@ -251,26 +246,25 @@ class SettingsScreen extends StatelessWidget {
     required bool value,
     required ValueChanged<bool> onChanged,
   }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: textColor.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: SwitchListTile(
-        activeColor: textColor,
-        secondary: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: textColor.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(12),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12.0),
+      child: GlassContainer(
+        padding: const EdgeInsets.symmetric(vertical: 4.0),
+        child: SwitchListTile(
+          activeColor: Theme.of(context).colorScheme.primary,
+          secondary: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: textColor.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: textColor, size: 24),
           ),
-          child: Icon(icon, color: textColor, size: 24),
+          title: Text(title, style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
+          subtitle: Text(subtitle, style: TextStyle(color: textColor.withOpacity(0.6), fontSize: 13)),
+          value: value,
+          onChanged: onChanged,
         ),
-        title: Text(title, style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
-        subtitle: Text(subtitle, style: TextStyle(color: textColor.withOpacity(0.7), fontSize: 12)),
-        value: value,
-        onChanged: onChanged,
       ),
     );
   }

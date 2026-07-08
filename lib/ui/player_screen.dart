@@ -6,6 +6,7 @@ import '../providers/app_provider.dart';
 import 'glassmorphic_component.dart';
 import '../utils/song_options_bottom_sheet.dart';
 import 'package:text_scroll/text_scroll.dart';
+import 'synced_lyrics_view.dart';
 
 class PlayerScreen extends StatefulWidget {
   final bool hideCover;
@@ -18,6 +19,8 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen> {
   late PageController _pageController;
   bool _isProgrammaticScroll = false;
+  bool _showLyrics = false;
+  double? _dragValue;
   
   @override
   void initState() {
@@ -402,99 +405,82 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ],
                     ),
                   ),
-                  // Cover Art Pager
+                  // Cover Art Pager or Synced Lyrics
                   Expanded(
-                    child: PageView.builder(
-                      controller: _pageController,
-                      onPageChanged: (index) {
-                        if (_isProgrammaticScroll) return;
-                        if (index != playerService.currentEffectiveIndex) {
-                          final indices = playerService.audioPlayer.effectiveIndices;
-                          final actualIndex = indices.isNotEmpty ? indices[index] : index;
-                          playerService.audioPlayer.seek(
-                            Duration.zero,
-                            index: actualIndex,
-                          );
-                        }
-                      },
-                      itemCount: fullPlaylist.length,
-                      itemBuilder: (context, index) {
-                        final qSong = fullPlaylist[index];
-                        return Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Expanded(
-                              child: Padding(
-                                padding: const EdgeInsets.all(32.0),
-                                child: Hero(
-                                  tag: 'cover_${qSong.id}',
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(20),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(alpha: 0.3),
-                                          blurRadius: 20,
-                                          offset: const Offset(0, 10),
+                    child: _showLyrics
+                        ? SyncedLyricsView(song: song)
+                        : PageView.builder(
+                            controller: _pageController,
+                            onPageChanged: (index) {
+                              if (_isProgrammaticScroll) return;
+                              if (index != playerService.currentEffectiveIndex) {
+                                final indices = playerService.audioPlayer.effectiveIndices;
+                                final actualIndex = indices.isNotEmpty ? indices[index] : index;
+                                playerService.audioPlayer.seek(
+                                  Duration.zero,
+                                  index: actualIndex,
+                                );
+                              }
+                            },
+                            itemCount: fullPlaylist.length,
+                            itemBuilder: (context, index) {
+                              final qSong = fullPlaylist[index];
+                              return Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Expanded(
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(32.0),
+                                      child: Hero(
+                                        tag: 'cover_${qSong.id}',
+                                        child: AnimatedArtworkCard(
+                                          song: qSong,
+                                          isPlaying: playerService.isPlaying,
+                                          isDark: isDark,
+                                          textColor: textColor,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 32.0),
+                                    child: Column(
+                                      children: [
+                                        TextScroll(
+                                          qSong.title,
+                                          mode: TextScrollMode.endless,
+                                          intervalSpaces: 40,
+                                          velocity: const Velocity(pixelsPerSecond: Offset(30, 0)),
+                                          delayBefore: const Duration(seconds: 2),
+                                          pauseBetween: const Duration(seconds: 2),
+                                          style: TextStyle(
+                                            color: textColor,
+                                            fontSize: 24,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                          selectable: false,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        TextScroll(
+                                          qSong.artist,
+                                          mode: TextScrollMode.endless,
+                                          intervalSpaces: 40,
+                                          velocity: const Velocity(pixelsPerSecond: Offset(30, 0)),
+                                          delayBefore: const Duration(seconds: 2),
+                                          pauseBetween: const Duration(seconds: 2),
+                                          style: TextStyle(
+                                            color: textColor.withValues(alpha: 0.7),
+                                            fontSize: 16,
+                                          ),
+                                          selectable: false,
                                         ),
                                       ],
                                     ),
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(20),
-                                      child: qSong.coverUrl.isEmpty
-                                          ? Container(
-                                              color: isDark ? Colors.white10 : Colors.black12,
-                                              child: Center(
-                                                child: Icon(Icons.music_note, size: 100, color: textColor.withValues(alpha: 0.54)),
-                                              ),
-                                            )
-                                          : (qSong.coverUrl.startsWith('asset:')
-                                              ? Image.asset(qSong.coverUrl.replaceFirst('asset:', ''), fit: BoxFit.cover)
-                                              : Image.network(qSong.coverUrl, fit: BoxFit.cover)),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 32.0),
-                              child: Column(
-                                children: [
-                                  TextScroll(
-                                    qSong.title,
-                                    mode: TextScrollMode.endless,
-                                    intervalSpaces: 40,
-                                    velocity: const Velocity(pixelsPerSecond: Offset(30, 0)),
-                                    delayBefore: const Duration(seconds: 2),
-                                    pauseBetween: const Duration(seconds: 2),
-                                    style: TextStyle(
-                                      color: textColor,
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                    selectable: false,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  TextScroll(
-                                    qSong.artist,
-                                    mode: TextScrollMode.endless,
-                                    intervalSpaces: 40,
-                                    velocity: const Velocity(pixelsPerSecond: Offset(30, 0)),
-                                    delayBefore: const Duration(seconds: 2),
-                                    pauseBetween: const Duration(seconds: 2),
-                                    style: TextStyle(
-                                      color: textColor.withValues(alpha: 0.7),
-                                      fontSize: 16,
-                                    ),
-                                    selectable: false,
                                   ),
                                 ],
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
+                              );
+                            },
+                          ),
                   ),
                   // Progress Bar
                   Padding(
@@ -519,11 +505,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                     overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
                                   ),
                                   child: Slider(
-                                    value: position.inSeconds.toDouble().clamp(0.0, duration.inSeconds > 0 ? duration.inSeconds.toDouble() : 1.0),
+                                    value: _dragValue ?? position.inSeconds.toDouble().clamp(0.0, duration.inSeconds > 0 ? duration.inSeconds.toDouble() : 1.0),
                                     min: 0,
                                     max: duration.inSeconds > 0 ? duration.inSeconds.toDouble() : 1.0,
                                     onChanged: (value) {
+                                      setState(() {
+                                        _dragValue = value;
+                                      });
+                                    },
+                                    onChangeEnd: (value) {
                                       playerService.seek(Duration(seconds: value.toInt()));
+                                      _dragValue = null;
                                     },
                                   ),
                                 ),
@@ -533,7 +525,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
                                       Text(
-                                        _formatDuration(position),
+                                        _formatDuration(_dragValue != null ? Duration(seconds: _dragValue!.toInt()) : position),
                                         style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.bold),
                                       ),
                                       Text(
@@ -573,31 +565,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           icon: Icon(Icons.skip_previous, color: textColor, size: 40),
                           onPressed: playerService.hasPrevious ? () => playerService.playPrevious() : null,
                         ),
-                        Container(
-                          width: 72,
-                          height: 72,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: primaryColor,
-                            boxShadow: [
-                              BoxShadow(
-                                color: primaryColor.withValues(alpha: 0.2),
-                                blurRadius: 8,
-                                spreadRadius: 2,
-                              ),
-                            ],
-                          ),
-                          child: IconButton(
-                            icon: Icon(
-                              playerService.isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
-                              color: isDark ? Colors.black : Colors.white,
-                              size: 40,
-                            ),
-                            onPressed: () {
-                              if (playerService.isPlaying) playerService.pause();
-                              else playerService.play();
-                            },
-                          ),
+                        MorphingPlayPauseButton(
+                          isPlaying: playerService.isPlaying,
+                          buttonColor: primaryColor,
+                          iconColor: isDark ? Colors.black : Colors.white,
+                          onPressed: () {
+                            if (playerService.isPlaying) playerService.pause();
+                            else playerService.play();
+                          },
                         ),
                         IconButton(
                           icon: Icon(Icons.skip_next, color: textColor, size: 40),
@@ -617,12 +592,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ],
                     ),
                   ),
-                  // Bottom Row (Queue)
+                  // Bottom Row (Lyrics & Queue)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 8.0),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
+                        IconButton(
+                          icon: Icon(
+                            _showLyrics ? Icons.lyrics : Icons.lyrics_outlined,
+                            color: _showLyrics ? primaryColor : textColor.withOpacity(0.54),
+                            size: 28,
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _showLyrics = !_showLyrics;
+                            });
+                          },
+                        ),
                         IconButton(
                           icon: Icon(
                             Icons.queue_music,
@@ -637,6 +624,208 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   const SizedBox(height: 16),
                 ],
               ),
+      ),
+    );
+  }
+}
+
+class AnimatedArtworkCard extends StatefulWidget {
+  final dynamic song;
+  final bool isPlaying;
+  final bool isDark;
+  final Color textColor;
+  const AnimatedArtworkCard({
+    super.key,
+    required this.song,
+    required this.isPlaying,
+    required this.isDark,
+    required this.textColor,
+  });
+
+  @override
+  State<AnimatedArtworkCard> createState() => _AnimatedArtworkCardState();
+}
+
+class _AnimatedArtworkCardState extends State<AnimatedArtworkCard> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _shadowAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+    _scaleAnimation = Tween<double>(begin: 0.88, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOutCubic),
+    );
+    _shadowAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOutCubic),
+    );
+    if (widget.isPlaying) {
+      _controller.value = 1.0;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant AnimatedArtworkCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isPlaying != oldWidget.isPlaying) {
+      if (widget.isPlaying) {
+        _controller.forward();
+      } else {
+        _controller.reverse();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        final scale = _scaleAnimation.value;
+        final shadowProgress = _shadowAnimation.value;
+        return Transform.scale(
+          scale: scale,
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.20 + (0.25 * shadowProgress)),
+                  blurRadius: 12.0 + (16.0 * shadowProgress),
+                  offset: Offset(0, 6.0 + (9.0 * shadowProgress)),
+                ),
+              ],
+            ),
+            child: child,
+          ),
+        );
+      },
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: widget.song.coverUrl.isEmpty
+            ? Container(
+                color: widget.isDark ? Colors.white10 : Colors.black12,
+                child: Center(
+                  child: Icon(Icons.music_note, size: 100, color: widget.textColor.withOpacity(0.54)),
+                ),
+              )
+            : (widget.song.coverUrl.startsWith('asset:')
+                ? Image.asset(widget.song.coverUrl.replaceFirst('asset:', ''), fit: BoxFit.cover)
+                : Image.network(widget.song.coverUrl, fit: BoxFit.cover)),
+      ),
+    );
+  }
+}
+
+class MorphingPlayPauseButton extends StatefulWidget {
+  final bool isPlaying;
+  final VoidCallback onPressed;
+  final Color buttonColor;
+  final Color iconColor;
+  const MorphingPlayPauseButton({
+    super.key,
+    required this.isPlaying,
+    required this.onPressed,
+    required this.buttonColor,
+    required this.iconColor,
+  });
+
+  @override
+  State<MorphingPlayPauseButton> createState() => _MorphingPlayPauseButtonState();
+}
+
+class _MorphingPlayPauseButtonState extends State<MorphingPlayPauseButton> with TickerProviderStateMixin {
+  late AnimationController _iconController;
+  late AnimationController _scaleController;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _iconController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    _scaleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 100),
+    );
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.85).animate(
+      CurvedAnimation(parent: _scaleController, curve: Curves.decelerate),
+    );
+    if (widget.isPlaying) {
+      _iconController.value = 1.0;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant MorphingPlayPauseButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isPlaying != oldWidget.isPlaying) {
+      if (widget.isPlaying) {
+        _iconController.forward();
+      } else {
+        _iconController.reverse();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _iconController.dispose();
+    _scaleController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => _scaleController.forward(),
+      onTapUp: (_) => _scaleController.reverse(),
+      onTapCancel: () => _scaleController.reverse(),
+      onTap: widget.onPressed,
+      child: AnimatedBuilder(
+        animation: _scaleAnimation,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _scaleAnimation.value,
+            child: child,
+          );
+        },
+        child: Container(
+          width: 72,
+          height: 72,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: widget.buttonColor,
+            boxShadow: [
+              BoxShadow(
+                color: widget.buttonColor.withOpacity(0.25),
+                blurRadius: 10,
+                spreadRadius: 2,
+              ),
+            ],
+          ),
+          child: Center(
+            child: AnimatedIcon(
+              icon: AnimatedIcons.play_pause,
+              progress: _iconController,
+              color: widget.iconColor,
+              size: 36,
+            ),
+          ),
+        ),
       ),
     );
   }

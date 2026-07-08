@@ -20,9 +20,7 @@ class Song {
       id: documentId,
       title: data['title'] ?? 'Unknown Title',
       artist: data['artist'] ?? 'Unknown Artist',
-      coverUrl:
-          (data['coverUrl'] as String?)?.trim() ??
-          'https://via.placeholder.com/150',
+      coverUrl: (data['coverUrl'] as String?)?.trim() ?? '',
       audioUrl: (data['audioUrl'] as String?)?.trim() ?? '',
       isTrending: data['isTrending'] ?? false,
     );
