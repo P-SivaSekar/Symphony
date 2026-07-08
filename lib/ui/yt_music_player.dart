@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/player_service.dart';
 import '../providers/app_provider.dart';
+import '../models/song_model.dart';
 import '../utils/song_options_bottom_sheet.dart';
 import 'player_screen.dart';
 import 'glassmorphic_component.dart';
@@ -405,186 +406,204 @@ class _MiniPlayerContent extends StatelessWidget {
                     ),
                     const SizedBox(height: 16),
                     Expanded(
-                      child: Builder(builder: (context) {
-                        final fullPlaylist = playerService.fullEffectivePlaylist;
-                        final queueLength = fullPlaylist.length;
-                        final autoQueue = playerService.autoplayQueue;
-                        final autoplayLength = playerService.autoplayEnabled ? autoQueue.length : 0;
-                        final hasAutoplay = autoplayLength > 0;
-                        
-                        final totalItems = queueLength + (hasAutoplay ? autoplayLength + 1 : 0) + 1; 
+                      child: StatefulBuilder(
+                        builder: (context, setSheetState) {
+                          final fullPlaylist = playerService.fullEffectivePlaylist;
+                          final autoQueue = playerService.autoplayQueue;
+                          final autoplayLength = playerService.autoplayEnabled ? autoQueue.length : 0;
+                          final hasAutoplay = autoplayLength > 0;
+                          
+                          // Maintain local copy to avoid async mismatch during dismiss animations
+                          final localQueue = List<Song>.from(fullPlaylist);
+                          final queueLength = localQueue.length;
+                          final totalItems = queueLength + (hasAutoplay ? autoplayLength + 1 : 0) + 1; 
 
-                        final scrollController = ScrollController(
-                          initialScrollOffset: playerService.currentEffectiveIndex * 72.0,
-                        );
+                          final scrollController = ScrollController(
+                            initialScrollOffset: playerService.currentEffectiveIndex * 72.0,
+                          );
 
-                        return ReorderableListView.builder(
-                          scrollController: scrollController,
-                          itemCount: totalItems,
-                          onReorder: (oldIndex, newIndex) {
-                            if (oldIndex < newIndex) {
-                              newIndex -= 1;
-                            }
-                            if (oldIndex < queueLength) {
-                              if (newIndex >= queueLength) newIndex = queueLength - 1;
-                              playerService.reorderQueue(oldIndex, newIndex);
-                              setState(() {});
-                            }
-                          },
-                          itemBuilder: (context, index) {
-                            if (index == totalItems - 1) {
-                              final viewportHeight = MediaQuery.of(context).size.height * 0.7;
-                              final itemsAfterCurrent = totalItems - 1 - playerService.currentEffectiveIndex;
-                              final heightAfterCurrent = itemsAfterCurrent * 72.0;
-                              final paddingHeight = (viewportHeight - heightAfterCurrent).clamp(0.0, viewportHeight);
-                              
-                              return SizedBox(
-                                key: const ValueKey('padding'),
-                                height: paddingHeight,
-                              );
-                            }
+                          return ReorderableListView.builder(
+                            scrollController: scrollController,
+                            itemCount: totalItems,
+                            onReorder: (oldIndex, newIndex) {
+                              if (oldIndex < newIndex) {
+                                newIndex -= 1;
+                              }
+                              if (oldIndex < queueLength) {
+                                if (newIndex >= queueLength) newIndex = queueLength - 1;
+                                playerService.reorderQueue(oldIndex, newIndex);
+                                setSheetState(() {});
+                              }
+                            },
+                            itemBuilder: (context, index) {
+                              if (index == totalItems - 1) {
+                                final viewportHeight = MediaQuery.of(context).size.height * 0.7;
+                                final itemsAfterCurrent = totalItems - 1 - playerService.currentEffectiveIndex;
+                                final heightAfterCurrent = itemsAfterCurrent * 72.0;
+                                final paddingHeight = (viewportHeight - heightAfterCurrent).clamp(0.0, viewportHeight);
+                                
+                                return SizedBox(
+                                  key: const ValueKey('padding'),
+                                  height: paddingHeight,
+                                );
+                              }
 
-                            if (index < queueLength) {
-                              final song = fullPlaylist[index];
-                              final isPlaying = index == playerService.currentEffectiveIndex;
+                              if (index < queueLength) {
+                                final song = localQueue[index];
+                                final isPlaying = index == playerService.currentEffectiveIndex;
 
-                              return Dismissible(
-                                key: ValueKey('queue_${song.id}_$index'),
-                                direction: DismissDirection.horizontal,
-                                onDismissed: (direction) {
-                                  playerService.removeFromQueue(index);
-                                  setState(() {});
-                                },
-                                background: Container(
-                                  color: Colors.redAccent,
-                                  alignment: Alignment.centerLeft,
-                                  padding: const EdgeInsets.only(left: 20),
-                                  child: const Icon(Icons.delete, color: Colors.white),
-                                ),
-                                secondaryBackground: Container(
-                                  color: Colors.redAccent,
-                                  alignment: Alignment.centerRight,
-                                  padding: const EdgeInsets.only(right: 20),
-                                  child: const Icon(Icons.delete, color: Colors.white),
-                                ),
-                                child: SizedBox(
+                                return Dismissible(
+                                  key: ValueKey('queue_${song.id}_$index'),
+                                  direction: DismissDirection.horizontal,
+                                  onDismissed: (direction) {
+                                    playerService.removeFromQueue(index);
+                                    localQueue.removeAt(index);
+                                    setSheetState(() {});
+                                  },
+                                  background: Container(
+                                    color: Colors.redAccent,
+                                    alignment: Alignment.centerLeft,
+                                    padding: const EdgeInsets.only(left: 20),
+                                    child: const Icon(Icons.delete, color: Colors.white),
+                                  ),
+                                  secondaryBackground: Container(
+                                    color: Colors.redAccent,
+                                    alignment: Alignment.centerRight,
+                                    padding: const EdgeInsets.only(right: 20),
+                                    child: const Icon(Icons.delete, color: Colors.white),
+                                  ),
+                                  child: SizedBox(
+                                    height: 72,
+                                    child: Center(
+                                      child: ListTile(
+                                        leading: ClipRRect(
+                                          borderRadius: BorderRadius.circular(8),
+                                          child: Stack(
+                                            children: [
+                                              song.coverUrl.isEmpty
+                                                  ? Container(
+                                                      width: 50,
+                                                      height: 50,
+                                                      color: isDark ? Colors.white10 : Colors.black12,
+                                                      child: Icon(Icons.music_note, color: textColor.withOpacity(0.5)),
+                                                    )
+                                                  : (song.coverUrl.startsWith('asset:')
+                                                      ? Image.asset(song.coverUrl.replaceFirst('asset:', ''), width: 50, height: 50, fit: BoxFit.cover)
+                                                      : Image.network(song.coverUrl, width: 50, height: 50, fit: BoxFit.cover)),
+                                              if (isPlaying)
+                                                Container(
+                                                  width: 50,
+                                                  height: 50,
+                                                  color: Colors.black45,
+                                                  child: Center(
+                                                    child: Icon(Icons.equalizer, color: primaryColor, size: 24),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                        title: Text(
+                                          song.title,
+                                          style: TextStyle(
+                                            color: isPlaying ? primaryColor : textColor,
+                                            fontWeight: isPlaying ? FontWeight.bold : FontWeight.normal,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        subtitle: Text(
+                                          song.artist,
+                                          style: TextStyle(color: textColor.withOpacity(0.7)),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        trailing: isPlaying
+                                            ? const SizedBox(width: 24)
+                                            : IconButton(
+                                                icon: Icon(Icons.more_vert, color: textColor.withOpacity(0.7)),
+                                                onPressed: () => showSongOptionsBottomSheet(context, song, isQueueContext: true, queueIndex: index),
+                                              ),
+                                        onTap: () {
+                                          final indices = playerService.audioPlayer.effectiveIndices;
+                                          final originalIndex = (indices != null && indices.length > index) ? indices[index] : index;
+                                          playerService.audioPlayer.seek(Duration.zero, index: originalIndex);
+                                          Navigator.pop(context);
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              } else if (index == queueLength) {
+                                return SizedBox(
+                                  key: const ValueKey('autoplay_header'),
+                                  height: 72,
+                                  child: Center(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text('— End of Queue —', style: TextStyle(color: textColor.withOpacity(0.5), fontWeight: FontWeight.bold)),
+                                        Text('Autoplay Tracks', style: TextStyle(color: primaryColor.withOpacity(0.8), fontSize: 12)),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              } else {
+                                final autoplayIndex = index - queueLength - 1;
+                                final song = autoQueue[autoplayIndex];
+
+                                return SizedBox(
+                                  key: ValueKey('autoplay_${song.id}_$index'),
                                   height: 72,
                                   child: Center(
                                     child: ListTile(
-                                      leading: ClipRRect(
-                                        borderRadius: BorderRadius.circular(8),
-                                        child: song.coverUrl.isEmpty
-                                            ? Container(
-                                                width: 50,
-                                                height: 50,
-                                                color: isDark ? Colors.white10 : Colors.black12,
-                                                child: Icon(Icons.music_note, color: textColor.withOpacity(0.5)),
-                                              )
-                                            : (song.coverUrl.startsWith('asset:')
-                                                ? Image.asset(song.coverUrl.replaceFirst('asset:', ''), width: 50, height: 50, fit: BoxFit.cover)
-                                                : Image.network(song.coverUrl, width: 50, height: 50, fit: BoxFit.cover)),
+                                      leading: Opacity(
+                                        opacity: 0.7,
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(8),
+                                          child: song.coverUrl.isEmpty
+                                              ? Container(
+                                                  width: 50,
+                                                  height: 50,
+                                                  color: isDark ? Colors.white10 : Colors.black12,
+                                                  child: Icon(Icons.music_note, color: textColor.withOpacity(0.5)),
+                                                )
+                                              : (song.coverUrl.startsWith('asset:')
+                                                  ? Image.asset(song.coverUrl.replaceFirst('asset:', ''), width: 50, height: 50, fit: BoxFit.cover)
+                                                  : Image.network(song.coverUrl, width: 50, height: 50, fit: BoxFit.cover)),
+                                        ),
                                       ),
                                       title: Text(
                                         song.title,
                                         style: TextStyle(
-                                          color: isPlaying ? primaryColor : textColor,
-                                          fontWeight: isPlaying ? FontWeight.bold : FontWeight.normal,
+                                          color: textColor.withOpacity(0.8),
+                                          fontWeight: FontWeight.normal,
                                         ),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                       subtitle: Text(
                                         song.artist,
-                                        style: TextStyle(color: textColor.withOpacity(0.7)),
+                                        style: TextStyle(color: textColor.withOpacity(0.4)),
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
-                                      trailing: isPlaying
-                                          ? Icon(Icons.equalizer, color: primaryColor)
-                                          : IconButton(
-                                              icon: Icon(Icons.more_vert, color: textColor.withOpacity(0.7)),
-                                              onPressed: () => showSongOptionsBottomSheet(context, song, isQueueContext: true, queueIndex: index),
-                                            ),
-                                      onTap: () {
-                                        final indices = playerService.audioPlayer.effectiveIndices;
-                                        final originalIndex = (indices != null && indices.length > index) ? indices[index] : index;
-                                        playerService.audioPlayer.seek(Duration.zero, index: originalIndex);
-                                        Navigator.pop(context);
+                                      trailing: Icon(Icons.auto_awesome, color: primaryColor.withOpacity(0.5)),
+                                      onTap: () async {
+                                        playerService.autoplayQueue.removeAt(autoplayIndex);
+                                        await playerService.addToQueue(song);
+                                        final newIndex = playerService.fullEffectivePlaylist.length - 1;
+                                        playerService.audioPlayer.seek(Duration.zero, index: newIndex);
+                                        playerService.populateAutoplayQueue(appProvider.allSongs);
+                                        if (context.mounted) Navigator.pop(context);
                                       },
                                     ),
                                   ),
-                                ),
-                              );
-                            } else if (index == queueLength) {
-                              return SizedBox(
-                                key: const ValueKey('autoplay_header'),
-                                height: 72,
-                                child: Center(
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text('— End of Queue —', style: TextStyle(color: textColor.withOpacity(0.5), fontWeight: FontWeight.bold)),
-                                      Text('Autoplay Tracks', style: TextStyle(color: primaryColor.withOpacity(0.8), fontSize: 12)),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            } else {
-                              final autoplayIndex = index - queueLength - 1;
-                              final song = autoQueue[autoplayIndex];
-
-                              return SizedBox(
-                                key: ValueKey('autoplay_${song.id}_$index'),
-                                height: 72,
-                                child: Center(
-                                  child: ListTile(
-                                    leading: Opacity(
-                                      opacity: 0.7,
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(8),
-                                        child: song.coverUrl.isEmpty
-                                            ? Container(
-                                                width: 50,
-                                                height: 50,
-                                                color: isDark ? Colors.white10 : Colors.black12,
-                                                child: Icon(Icons.music_note, color: textColor.withOpacity(0.5)),
-                                              )
-                                            : (song.coverUrl.startsWith('asset:')
-                                                ? Image.asset(song.coverUrl.replaceFirst('asset:', ''), width: 50, height: 50, fit: BoxFit.cover)
-                                                : Image.network(song.coverUrl, width: 50, height: 50, fit: BoxFit.cover)),
-                                      ),
-                                    ),
-                                    title: Text(
-                                      song.title,
-                                      style: TextStyle(
-                                        color: textColor.withOpacity(0.8),
-                                        fontWeight: FontWeight.normal,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    subtitle: Text(
-                                      song.artist,
-                                      style: TextStyle(color: textColor.withOpacity(0.4)),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    trailing: Icon(Icons.auto_awesome, color: primaryColor.withOpacity(0.5)),
-                                    onTap: () async {
-                                      playerService.autoplayQueue.removeAt(autoplayIndex);
-                                      await playerService.addToQueue(song);
-                                      final newIndex = playerService.fullEffectivePlaylist.length - 1;
-                                      playerService.audioPlayer.seek(Duration.zero, index: newIndex);
-                                      playerService.populateAutoplayQueue(appProvider.allSongs);
-                                      if (context.mounted) Navigator.pop(context);
-                                    },
-                                  ),
-                                ),
-                              );
-                            }
-                          },
-                        );
-                      }),
+                                );
+                              }
+                            },
+                          );
+                        }
+                      ),
                     ),
                   ],
                 ),
