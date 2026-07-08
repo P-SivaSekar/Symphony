@@ -116,9 +116,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         ),
                         Row(
                           children: [
+                            IconButton(
+                              tooltip: 'Shuffle',
+                              icon: Icon(
+                                playerService.isShuffleModeEnabled ? Icons.shuffle : Icons.shuffle_outlined,
+                                color: playerService.isShuffleModeEnabled ? primaryColor : textColor.withOpacity(0.6),
+                              ),
+                              onPressed: () {
+                                playerService.toggleShuffle(appProvider.allSongs);
+                                setState(() {});
+                              },
+                            ),
+                            const SizedBox(width: 8),
                             Text(
                               'Autoplay',
-                              style: TextStyle(color: textColor.withValues(alpha: 0.7)),
+                              style: TextStyle(color: textColor.withOpacity(0.7)),
                             ),
                             Switch(
                               value: playerService.autoplayEnabled,

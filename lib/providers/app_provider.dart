@@ -902,31 +902,38 @@ class AppProvider extends ChangeNotifier {
 
     for (int i = 0; i < _allSongs.length; i++) {
       final song = _allSongs[i];
-      if (song.coverUrl.startsWith('https://c.saavncdn.com')) continue;
 
       final cacheKey = 'saavn_cover_${song.id}';
       final cachedUrl = prefs.getString(cacheKey);
-      if (cachedUrl != null && cachedUrl.isNotEmpty) {
-        _allSongs[i] = song.copyWith(coverUrl: cachedUrl);
+      
+      final audioCacheKey = 'saavn_audio_${song.id}';
+      final cachedAudioUrl = prefs.getString(audioCacheKey);
+
+      // Fast Path: Check if both cached cover and audio are available locally
+      if (cachedUrl != null && cachedUrl.isNotEmpty && 
+          cachedAudioUrl != null && cachedAudioUrl.isNotEmpty) {
+        _allSongs[i] = song.copyWith(coverUrl: cachedUrl, audioUrl: cachedAudioUrl);
         updated = true;
-        
-        // Sync cached cover to Firestore if Firestore is still using the old URL
-        if (!song.coverUrl.startsWith('https://c.saavncdn.com')) {
+
+        // Check if we need to sync this to Firestore (if Firestore has Cloudinary/empty values)
+        if (!song.coverUrl.startsWith('https://c.saavncdn.com') || song.audioUrl.contains("cloudinary.com")) {
           try {
             final user = FirebaseAuth.instance.currentUser;
             if (user != null) {
               await FirebaseFirestore.instance.collection('songs').doc(song.id).update({
                 'coverUrl': cachedUrl,
+                'audioUrl': cachedAudioUrl,
               });
-              print("Synced cached cover for '${song.title}' to Firestore.");
+              print("Synced cached cover & audio for '${song.title}' to Firestore.");
             }
           } catch (e) {
-            print("Failed to sync cached cover to Firestore: $e");
+            print("Failed to sync cached cover/audio to Firestore: $e");
           }
         }
         continue;
       }
 
+      // If either cover or audio is missing/needs resolution, fetch them
       try {
         final query = Uri.encodeComponent(song.title);
         final response = await http.get(Uri.parse(
@@ -935,31 +942,168 @@ class AppProvider extends ChangeNotifier {
         
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
-          String? cover;
+          String? cover = cachedUrl;
+          String? audio = cachedAudioUrl;
           
           if (data['status'] == true && data['results'] != null && data['results'].isNotEmpty) {
-            final firstResult = data['results'][0];
-            if (firstResult['images'] != null && firstResult['images']['500x500'] != null) {
-              cover = firstResult['images']['500x500'] as String?;
-            } else {
-              cover = firstResult['image'] as String?;
+            final results = List<dynamic>.from(data['results']);
+            
+            // Helper function to check overlap score
+            double getOverlapScore(String query, String candidate) {
+              final qWords = query.toLowerCase().replaceAll(RegExp(r'[^a-z0-9 ]'), '').split(' ').where((w) => w.length > 2).toList();
+              final cWords = candidate.toLowerCase().replaceAll(RegExp(r'[^a-z0-9 ]'), '').split(' ').where((w) => w.length > 2).toList();
+              if (qWords.isEmpty || cWords.isEmpty) return 0.0;
+              
+              int matches = 0;
+              for (var qw in qWords) {
+                for (var cw in cWords) {
+                  if (cw.contains(qw) || qw.contains(cw)) {
+                    matches++;
+                    break;
+                  }
+                }
+              }
+              return matches / qWords.length;
+            }
+
+            // Find the best Tamil result
+            Map<String, dynamic>? bestResult;
+            double highestScore = 0.0;
+
+            for (var res in results) {
+              final moreInfo = res['more_info'];
+              final album = (res['album'] ?? '').toString().toLowerCase();
+              
+              bool isTamil = false;
+              if (moreInfo != null && (moreInfo['language'] == 'Tamil' || moreInfo['language'] == 'tamil')) {
+                isTamil = true;
+              } else if (album.contains('tamil') || (res['description'] ?? '').toString().toLowerCase().contains('tamil')) {
+                isTamil = true;
+              }
+
+              if (isTamil) {
+                final score = getOverlapScore(song.title, res['title'] ?? '');
+                if (score > highestScore) {
+                  highestScore = score;
+                  bestResult = Map<String, dynamic>.from(res);
+                }
+              }
+            }
+
+            // Fallback: If overlap score is too low (< 0.3), try searching for just the first word
+            if (bestResult == null || highestScore < 0.3) {
+              final words = song.title.replaceAll(RegExp(r'[^a-zA-Z0-9 ]'), '').split(' ').where((w) => w.length > 3).toList();
+              if (words.isNotEmpty) {
+                final fallbackQuery = Uri.encodeComponent(words[0]);
+                final fallbackResponse = await http.get(Uri.parse(
+                  'https://jiosaavn-api.vercel.app/search?query=$fallbackQuery'
+                ));
+                if (fallbackResponse.statusCode == 200) {
+                  final fallbackData = jsonDecode(fallbackResponse.body);
+                  if (fallbackData['status'] == true && fallbackData['results'] != null && fallbackData['results'].isNotEmpty) {
+                    final fallbackResults = List<dynamic>.from(fallbackData['results']);
+                    Map<String, dynamic>? bestFallback;
+                    double highestFallbackScore = 0.0;
+
+                    for (var res in fallbackResults) {
+                      final moreInfo = res['more_info'];
+                      final album = (res['album'] ?? '').toString().toLowerCase();
+                      
+                      bool isTamil = false;
+                      if (moreInfo != null && (moreInfo['language'] == 'Tamil' || moreInfo['language'] == 'tamil')) {
+                        isTamil = true;
+                      } else if (album.contains('tamil') || (res['description'] ?? '').toString().toLowerCase().contains('tamil')) {
+                        isTamil = true;
+                      }
+
+                      if (isTamil) {
+                        final score = getOverlapScore(song.title, res['title'] ?? '');
+                        if (score > highestFallbackScore) {
+                          highestFallbackScore = score;
+                          bestFallback = Map<String, dynamic>.from(res);
+                        }
+                      }
+                    }
+                    if (bestFallback != null && highestFallbackScore >= 0.3) {
+                      bestResult = bestFallback;
+                    }
+                  }
+                }
+              }
+            }
+
+            // Final fallback to the first Tamil result if still null
+            if (bestResult == null) {
+              for (var res in results) {
+                final moreInfo = res['more_info'];
+                final album = (res['album'] ?? '').toString().toLowerCase();
+                if ((moreInfo != null && (moreInfo['language'] == 'Tamil' || moreInfo['language'] == 'tamil')) || album.contains('tamil')) {
+                  bestResult = Map<String, dynamic>.from(res);
+                  break;
+                }
+              }
+            }
+
+            // Fallback to first result if absolutely no Tamil result found
+            bestResult ??= Map<String, dynamic>.from(results[0]);
+
+            final saavnId = bestResult['id'];
+
+            // Get cover if not already cached
+            if (cover == null || cover.isEmpty) {
+              if (bestResult['images'] != null && bestResult['images']['500x500'] != null) {
+                cover = bestResult['images']['500x500'] as String?;
+              } else {
+                cover = bestResult['image'] as String?;
+              }
+              if (cover != null) {
+                cover = cover.replaceAll('50x50', '500x500').replaceAll('150x150', '500x500');
+              }
+            }
+
+            // Get audio if not already cached
+            if (audio == null || audio.isEmpty || song.audioUrl.contains("cloudinary.com") || song.audioUrl.isEmpty) {
+              final songDetailResponse = await http.get(Uri.parse(
+                'https://jiosaavn-api.vercel.app/song?id=$saavnId'
+              ));
+              if (songDetailResponse.statusCode == 200) {
+                final detailData = jsonDecode(songDetailResponse.body);
+                if (detailData['status'] == true) {
+                  final urls = detailData['media_urls'];
+                  if (urls != null) {
+                    audio = urls['320_KBPS'] ?? urls['160_KBPS'] ?? detailData['media_url'];
+                  } else {
+                    audio = detailData['media_url'];
+                  }
+                }
+              }
             }
           }
           
-          if (cover != null && cover.isNotEmpty) {
-            cover = cover.replaceAll('50x50', '500x500').replaceAll('150x150', '500x500');
-            _allSongs[i] = song.copyWith(coverUrl: cover);
+          bool shouldUpdate = false;
+          final Map<String, dynamic> updateData = {};
+
+          if (cover != null && cover.isNotEmpty && cover != song.coverUrl) {
+            _allSongs[i] = _allSongs[i].copyWith(coverUrl: cover);
             await prefs.setString(cacheKey, cover);
+            updateData['coverUrl'] = cover;
+            shouldUpdate = true;
+          }
+
+          if (audio != null && audio.isNotEmpty && audio != song.audioUrl) {
+            _allSongs[i] = _allSongs[i].copyWith(audioUrl: audio);
+            await prefs.setString(audioCacheKey, audio);
+            updateData['audioUrl'] = audio;
+            shouldUpdate = true;
+          }
+
+          if (shouldUpdate) {
             updated = true;
-            
-            // Sync resolved cover back to Firestore so all clients (including Web) get it immediately
             try {
               final user = FirebaseAuth.instance.currentUser;
-              if (user != null) {
-                await FirebaseFirestore.instance.collection('songs').doc(song.id).update({
-                  'coverUrl': cover,
-                });
-                print("Synched cover for '${song.title}' to Firestore.");
+              if (user != null && updateData.isNotEmpty) {
+                await FirebaseFirestore.instance.collection('songs').doc(song.id).update(updateData);
+                print("Synched cover/audio for '${song.title}' to Firestore.");
               }
             } catch (fsError) {
               print("Firestore sync error for '${song.title}': $fsError");
@@ -967,7 +1111,7 @@ class AppProvider extends ChangeNotifier {
           }
         }
       } catch (e) {
-        print("Error resolving cover for ${song.title}: $e");
+        print("Error resolving cover/audio for ${song.title}: $e");
       }
     }
 
