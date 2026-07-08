@@ -231,16 +231,6 @@ class _MiniPlayerContent extends StatelessWidget {
                   ),
                   IconButton(
                     icon: Icon(
-                      playerService.isShuffleModeEnabled ? Icons.shuffle : Icons.shuffle_outlined,
-                      color: playerService.isShuffleModeEnabled ? Theme.of(context).colorScheme.primary : textColor,
-                    ),
-                    onPressed: () {
-                      final appProvider = Provider.of<AppProvider>(context, listen: false);
-                      playerService.toggleShuffle(appProvider.allSongs);
-                    },
-                  ),
-                  IconButton(
-                    icon: Icon(
                       Icons.queue_music,
                       color: textColor,
                     ),

@@ -136,6 +136,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               ),
                               onPressed: () {
                                 playerService.toggleShuffle(appProvider.allSongs);
+                                localQueue = null; // Force rebuild of localQueue
                                 setState(() {});
                               },
                             ),
@@ -372,10 +373,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final playerService = Provider.of<PlayerService>(context);
     final fullPlaylist = playerService.fullEffectivePlaylist;
 
+    final appProvider = Provider.of<AppProvider>(context);
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final primaryColor = theme.colorScheme.primary;
+    final textColor = theme.colorScheme.onSurface;
+
+    bool shuffleChanged = false;
     if (_lastShuffleMode != playerService.isShuffleModeEnabled) {
       _lastShuffleMode = playerService.isShuffleModeEnabled;
-      _pageController.dispose();
-      _pageController = PageController(initialPage: playerService.currentEffectiveIndex);
+      shuffleChanged = true;
     }
 
     // Ensure PageView animates/jumps to the correct page when the song changes externally
@@ -386,7 +393,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (currentPage != targetPage) {
           _isProgrammaticScroll = true;
           final pageDiff = (currentPage - targetPage).abs();
-          if (pageDiff > 1) {
+          
+          if (shuffleChanged || pageDiff > 1) {
             _pageController.jumpToPage(targetPage);
             _isProgrammaticScroll = false;
           } else {
@@ -399,12 +407,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         }
       }
     });
-
-    final appProvider = Provider.of<AppProvider>(context);
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final primaryColor = theme.colorScheme.primary;
-    final textColor = theme.colorScheme.onSurface;
 
     final song = playerService.currentSong;
     if (song == null) {
