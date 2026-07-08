@@ -909,6 +909,21 @@ class AppProvider extends ChangeNotifier {
       if (cachedUrl != null && cachedUrl.isNotEmpty) {
         _allSongs[i] = song.copyWith(coverUrl: cachedUrl);
         updated = true;
+        
+        // Sync cached cover to Firestore if Firestore is still using the old URL
+        if (!song.coverUrl.startsWith('https://c.saavncdn.com')) {
+          try {
+            final user = FirebaseAuth.instance.currentUser;
+            if (user != null) {
+              await FirebaseFirestore.instance.collection('songs').doc(song.id).update({
+                'coverUrl': cachedUrl,
+              });
+              print("Synced cached cover for '${song.title}' to Firestore.");
+            }
+          } catch (e) {
+            print("Failed to sync cached cover to Firestore: $e");
+          }
+        }
         continue;
       }
 
@@ -936,6 +951,19 @@ class AppProvider extends ChangeNotifier {
             _allSongs[i] = song.copyWith(coverUrl: cover);
             await prefs.setString(cacheKey, cover);
             updated = true;
+            
+            // Sync resolved cover back to Firestore so all clients (including Web) get it immediately
+            try {
+              final user = FirebaseAuth.instance.currentUser;
+              if (user != null) {
+                await FirebaseFirestore.instance.collection('songs').doc(song.id).update({
+                  'coverUrl': cover,
+                });
+                print("Synched cover for '${song.title}' to Firestore.");
+              }
+            } catch (fsError) {
+              print("Firestore sync error for '${song.title}': $fsError");
+            }
           }
         }
       } catch (e) {
