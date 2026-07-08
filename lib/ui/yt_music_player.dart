@@ -344,6 +344,7 @@ class _MiniPlayerContent extends StatelessWidget {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (context) {
+        List<Song>? localQueue;
         return StatefulBuilder(
           builder: (context, setState) {
             return GlassContainer(
@@ -413,9 +414,9 @@ class _MiniPlayerContent extends StatelessWidget {
                           final autoplayLength = playerService.autoplayEnabled ? autoQueue.length : 0;
                           final hasAutoplay = autoplayLength > 0;
                           
-                          // Maintain local copy to avoid async mismatch during dismiss animations
-                          final localQueue = List<Song>.from(fullPlaylist);
-                          final queueLength = localQueue.length;
+                          // Lazily initialize localQueue so it persists across rebuilds
+                          localQueue ??= List<Song>.from(fullPlaylist);
+                          final queueLength = localQueue!.length;
                           final totalItems = queueLength + (hasAutoplay ? autoplayLength + 1 : 0) + 1; 
 
                           final scrollController = ScrollController(
@@ -449,7 +450,7 @@ class _MiniPlayerContent extends StatelessWidget {
                               }
 
                               if (index < queueLength) {
-                                final song = localQueue[index];
+                                final song = localQueue![index];
                                 final isPlaying = index == playerService.currentEffectiveIndex;
 
                                 return Dismissible(
@@ -457,7 +458,7 @@ class _MiniPlayerContent extends StatelessWidget {
                                   direction: DismissDirection.horizontal,
                                   onDismissed: (direction) {
                                     playerService.removeFromQueue(index);
-                                    localQueue.removeAt(index);
+                                    localQueue!.removeAt(index);
                                     setSheetState(() {});
                                   },
                                   background: Container(

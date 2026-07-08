@@ -301,11 +301,6 @@ class PlayerService extends ChangeNotifier {
     final validSongs = songs.where((s) => s.audioUrl.isNotEmpty).toList();
     if (validSongs.isEmpty) return;
     
-    // Auto-enable shuffle if the queue was previously empty
-    if (_playlist.isEmpty) {
-      await _audioPlayer.setShuffleModeEnabled(true);
-    }
-    
     _playlist = validSongs;
 
     int newIndex = 0;

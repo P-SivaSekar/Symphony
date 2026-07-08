@@ -903,6 +903,29 @@ class AppProvider extends ChangeNotifier {
     for (int i = 0; i < _allSongs.length; i++) {
       final song = _allSongs[i];
 
+      // Hardcoded cover art override for the song "Tum Tum" to prevent Hindi cover art mismatch
+      if (song.title.toLowerCase().trim() == 'tum tum') {
+        const overrideCover = 'https://c.saavncdn.com/523/Pathala-From-Enemy-Tamil-Tamil-2021-20260107193516-500x500.jpg';
+        _allSongs[i] = song.copyWith(coverUrl: overrideCover);
+        updated = true;
+
+        // Sync to Firestore if current cover is different
+        if (song.coverUrl != overrideCover) {
+          try {
+            final user = FirebaseAuth.instance.currentUser;
+            if (user != null) {
+              await FirebaseFirestore.instance.collection('songs').doc(song.id).update({
+                'coverUrl': overrideCover,
+              });
+              print("Synced hardcoded cover override for 'Tum Tum' to Firestore.");
+            }
+          } catch (e) {
+            print("Failed to sync hardcoded override to Firestore: $e");
+          }
+        }
+        continue;
+      }
+
       final cacheKey = 'saavn_cover_${song.id}';
       final cachedUrl = prefs.getString(cacheKey);
       
@@ -935,7 +958,16 @@ class AppProvider extends ChangeNotifier {
 
       // If either cover or audio is missing/needs resolution, fetch them
       try {
-        final query = Uri.encodeComponent(song.title);
+        String searchTerm = song.title;
+        if (song.artist.isNotEmpty && 
+            song.artist.toLowerCase() != 'unknown' && 
+            !song.artist.toLowerCase().contains('unknown') && 
+            !song.artist.toLowerCase().contains('various')) {
+          searchTerm += ' ${song.artist}';
+        } else {
+          searchTerm += ' Tamil';
+        }
+        final query = Uri.encodeComponent(searchTerm);
         final response = await http.get(Uri.parse(
           'https://jiosaavn-api.vercel.app/search?query=$query'
         ));

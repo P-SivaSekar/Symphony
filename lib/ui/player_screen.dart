@@ -21,6 +21,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _isProgrammaticScroll = false;
   bool _showLyrics = false;
   double? _dragValue;
+  bool? _lastShuffleMode;
   
   @override
   void initState() {
@@ -29,6 +30,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _pageController = PageController(
       initialPage: playerService.currentEffectiveIndex,
     );
+    _lastShuffleMode = playerService.isShuffleModeEnabled;
   }
 
   @override
@@ -93,6 +95,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (context) {
+        List<Song>? localQueue;
         return StatefulBuilder(
           builder: (context, setState) {
             return GlassContainer(
@@ -162,9 +165,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           final autoplayLength = playerService.autoplayEnabled ? autoQueue.length : 0;
                           final hasAutoplay = autoplayLength > 0;
                           
-                          // Maintain local copy to avoid async mismatch during dismiss animations
-                          final localQueue = List<Song>.from(fullPlaylist);
-                          final queueLength = localQueue.length;
+                          // Lazily initialize localQueue so it persists across rebuilds
+                          localQueue ??= List<Song>.from(fullPlaylist);
+                          final queueLength = localQueue!.length;
                           final totalItems = queueLength + (hasAutoplay ? autoplayLength + 1 : 0) + 1;
 
                           final scrollController = ScrollController(
@@ -198,7 +201,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               }
 
                               if (index < queueLength) {
-                                final song = localQueue[index];
+                                final song = localQueue![index];
                                 final isPlaying = index == playerService.currentEffectiveIndex;
 
                                 return Dismissible(
@@ -206,7 +209,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                   direction: DismissDirection.horizontal,
                                   onDismissed: (direction) {
                                     playerService.removeFromQueue(index);
-                                    localQueue.removeAt(index);
+                                    localQueue!.removeAt(index);
                                     setSheetState(() {});
                                   },
                                   background: Container(
@@ -368,6 +371,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Widget build(BuildContext context) {
     final playerService = Provider.of<PlayerService>(context);
     final fullPlaylist = playerService.fullEffectivePlaylist;
+
+    if (_lastShuffleMode != playerService.isShuffleModeEnabled) {
+      _lastShuffleMode = playerService.isShuffleModeEnabled;
+      _pageController.dispose();
+      _pageController = PageController(initialPage: playerService.currentEffectiveIndex);
+    }
 
     // Ensure PageView animates/jumps to the correct page when the song changes externally
     WidgetsBinding.instance.addPostFrameCallback((_) {
