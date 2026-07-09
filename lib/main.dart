@@ -164,22 +164,24 @@ void main() async {
     }
   }
 
-  try {
-    await JustAudioBackground.init(
-      androidNotificationChannelId: 'com.example.symphony.channel.audio',
-      androidNotificationChannelName: 'Audio playback',
-      androidNotificationOngoing: true,
-      androidNotificationIcon: 'mipmap/launcher_icon',
-    );
-  } catch (e) {
-    print("JustAudioBackground init error: $e");
-  }
+  if (!kIsWeb) {
+    try {
+      await JustAudioBackground.init(
+        androidNotificationChannelId: 'com.example.symphony.channel.audio',
+        androidNotificationChannelName: 'Audio playback',
+        androidNotificationOngoing: true,
+        androidNotificationIcon: 'mipmap/launcher_icon',
+      );
+    } catch (e) {
+      print("JustAudioBackground init error: $e");
+    }
 
-  // Request notification permissions
-  try {
-    await Permission.notification.request();
-  } catch (e) {
-    print("Notification permission error: $e");
+    // Request notification permissions
+    try {
+      await Permission.notification.request();
+    } catch (e) {
+      print("Notification permission error: $e");
+    }
   }
 
   runApp(
