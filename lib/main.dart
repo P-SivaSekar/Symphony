@@ -309,6 +309,7 @@ class _AuthenticationWrapperState extends State<AuthenticationWrapper> {
     final playerService = Provider.of<PlayerService>(context, listen: false);
     final appProviderNonListening = Provider.of<AppProvider>(context, listen: false);
     playerService.songResolver ??= appProviderNonListening.resolveSongNow;
+    playerService.onSongPlayed ??= appProviderNonListening.addToPlayHistory;
     playerService.onQueueEmpty ??= ({bool forcePlay = false}) {
       playerService.consumeAutoplay(appProviderNonListening.allSongs, forcePlay: forcePlay);
     };
@@ -381,6 +382,7 @@ class _MainScreenState extends State<MainScreen> {
     super.didChangeDependencies();
     final playerService = Provider.of<PlayerService>(context, listen: false);
     final appProvider = Provider.of<AppProvider>(context, listen: false);
+    playerService.onSongPlayed ??= appProvider.addToPlayHistory;
     playerService.onQueueEmpty ??= ({bool forcePlay = false}) {
       playerService.consumeAutoplay(appProvider.allSongs, forcePlay: forcePlay);
     };
@@ -428,14 +430,14 @@ class _MainScreenState extends State<MainScreen> {
     final appProvider = Provider.of<AppProvider>(context, listen: false);
 
     // Ensure the autoplay queue is pre-populated whenever the UI builds
-    if (playerService.autoplayEnabled && playerService.autoplayQueue.isEmpty && appProvider.allSongs.isNotEmpty) {
-      Future.microtask(() => playerService.populateAutoplayQueue(appProvider.allSongs));
+    if (playerService.autoplayEnabled && playerService.autoplayQueue.isEmpty && appProvider.trendingSongs.isNotEmpty) {
+      Future.microtask(() => playerService.populateAutoplayQueue(appProvider.trendingSongs));
     }
 
     if (playerService.onQueueEmpty == null) {
       playerService.onQueueEmpty = ({bool forcePlay = false}) {
-        if (playerService.autoplayEnabled && appProvider.allSongs.isNotEmpty) {
-          playerService.consumeAutoplay(appProvider.allSongs, forcePlay: forcePlay);
+        if (playerService.autoplayEnabled && appProvider.trendingSongs.isNotEmpty) {
+          playerService.consumeAutoplay(appProvider.trendingSongs, forcePlay: forcePlay);
         }
       };
     }
@@ -508,10 +510,19 @@ class _MainScreenState extends State<MainScreen> {
                   unselectedItemColor: Theme.of(context).colorScheme.onSurface.withOpacity(0.54),
                   type: BottomNavigationBarType.fixed,
                   elevation: 0,
-                  items: const [
-                    BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Home'),
-                    BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Search'),
-                    BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
+                  items: [
+                    const BottomNavigationBarItem(icon: Icon(Icons.home_filled), label: 'Home'),
+                    const BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Search'),
+                    BottomNavigationBarItem(
+                      icon: appProvider.userProfile?.profilePicUrl.isNotEmpty == true
+                          ? CircleAvatar(
+                              radius: 12,
+                              backgroundImage: NetworkImage(appProvider.userProfile!.profilePicUrl),
+                              backgroundColor: Colors.transparent,
+                            )
+                          : const Icon(Icons.person),
+                      label: 'Profile',
+                    ),
                   ],
                 ),
               ),

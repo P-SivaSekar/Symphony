@@ -1,3 +1,5 @@
+import 'song_model.dart';
+
 class Playlist {
   final String id;
   final String name;
@@ -5,14 +7,18 @@ class Playlist {
   final bool isGlobal; // If true, visible to everyone
   final List<String> songIds;
   final String coverUrl;
+  final String description;
+  final List<Song> songs; // Stores actual songs for Saavn playlists
 
   Playlist({
     required this.id,
     required this.name,
-    required this.creatorId,
-    this.isGlobal = false,
+    this.creatorId = 'saavn',
+    this.isGlobal = true,
     this.songIds = const [],
     this.coverUrl = '',
+    this.description = '',
+    this.songs = const [],
   });
 
   factory Playlist.fromMap(Map<String, dynamic> map, String id) {
@@ -23,6 +29,7 @@ class Playlist {
       isGlobal: map['isGlobal'] ?? false,
       songIds: List<String>.from(map['songIds'] ?? []),
       coverUrl: map['coverUrl'] ?? '',
+      description: map['description'] ?? '',
     );
   }
 
@@ -34,6 +41,7 @@ class Playlist {
       'isGlobal': isGlobal,
       'songIds': songIds,
       'coverUrl': coverUrl,
+      'description': description,
     };
   }
 }

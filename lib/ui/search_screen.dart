@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import '../services/saavn_service.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
 import '../services/player_service.dart';
@@ -163,8 +165,11 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
+  Timer? _debounce;
+
   @override
   void dispose() {
+    _debounce?.cancel();
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     _focusNode.dispose();
@@ -181,13 +186,22 @@ class _SearchScreenState extends State<SearchScreen> {
       return;
     }
 
-    final appProvider = Provider.of<AppProvider>(context, listen: false);
     setState(() {
       _isSearching = true;
-      _searchResults = appProvider.allSongs.where((song) {
-        return song.title.toLowerCase().contains(query) ||
-            song.artist.toLowerCase().contains(query);
-      }).toList();
+    });
+
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), () async {
+      try {
+        final results = await SaavnService.searchTamilSongs(query);
+        if (mounted) {
+          setState(() {
+            _searchResults = results;
+          });
+        }
+      } catch (e) {
+        print("Search error: $e");
+      }
     });
   }
 
@@ -346,23 +360,13 @@ class _SearchScreenState extends State<SearchScreen> {
                                   _isMultiSelectMode = false;
                                 }
                               });
-                            } else if (_isSearching) {
-                                  final allSongs = appProvider.allSongs;
-                                  final initialIndex = allSongs.indexWhere(
-                                    (s) => s.id == song.id,
-                                  );
-                                  playAndOpenPlayer(
-                                    context,
-                                    allSongs,
-                                    initialIndex != -1 ? initialIndex : 0,
-                                  );
-                                } else {
-                                  playAndOpenPlayer(
-                                    context,
-                                    displaySongs,
-                                    index,
-                                  );
-                                }
+                            } else {
+                              playAndOpenPlayer(
+                                context,
+                                [song],
+                                0,
+                              );
+                            }
                           },
                           onLongPress: () {
                             if (!_isMultiSelectMode) {

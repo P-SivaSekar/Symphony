@@ -186,20 +186,18 @@ class _MiniPlayerContent extends StatelessWidget {
                           ),
                           selectable: false,
                         ),
-                        const SizedBox(height: 3),
-                        TextScroll(
-                          song.artist,
-                          mode: TextScrollMode.endless,
-                          intervalSpaces: 40,
-                          velocity: const Velocity(pixelsPerSecond: Offset(30, 0)),
-                          delayBefore: const Duration(seconds: 2),
-                          pauseBetween: const Duration(seconds: 2),
-                          style: TextStyle(
-                            color: textColor.withOpacity(0.6),
-                            fontSize: 12,
+                        if (song.artist.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            song.artist,
+                            style: TextStyle(
+                              color: textColor.withOpacity(0.6),
+                              fontSize: 12,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          selectable: false,
-                        ),
+                        ],
                       ],
                     ),
                   ),
@@ -295,20 +293,18 @@ class _MiniPlayerContent extends StatelessWidget {
                   ),
                   selectable: false,
                 ),
-                const SizedBox(height: 2),
-                TextScroll(
-                  song.artist,
-                  mode: TextScrollMode.endless,
-                  intervalSpaces: 40,
-                  velocity: const Velocity(pixelsPerSecond: Offset(30, 0)),
-                  delayBefore: const Duration(seconds: 2),
-                  pauseBetween: const Duration(seconds: 2),
-                  style: TextStyle(
-                    color: textColor.withOpacity(0.6),
-                    fontSize: 12,
+                if (song.artist.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    song.artist,
+                    style: TextStyle(
+                      color: textColor.withOpacity(0.6),
+                      fontSize: 12,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  selectable: false,
-                ),
+                ],
               ],
             ),
           ),
@@ -321,7 +317,7 @@ class _MiniPlayerContent extends StatelessWidget {
 
   void _showQueueBottomSheet(BuildContext context, PlayerService playerService, AppProvider appProvider) {
     if (playerService.autoplayEnabled && playerService.autoplayQueue.isEmpty) {
-      playerService.populateAutoplayQueue(appProvider.allSongs);
+      playerService.populateAutoplayQueue(appProvider.trendingSongs);
     }
     
     final theme = Theme.of(context);
@@ -502,12 +498,6 @@ class _MiniPlayerContent extends StatelessWidget {
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                         ),
-                                        subtitle: Text(
-                                          song.artist,
-                                          style: TextStyle(color: textColor.withOpacity(0.7)),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
                                         trailing: isPlaying
                                             ? const SizedBox(width: 24)
                                             : IconButton(
@@ -569,13 +559,7 @@ class _MiniPlayerContent extends StatelessWidget {
                                           color: textColor.withOpacity(0.8),
                                           fontWeight: FontWeight.normal,
                                         ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      subtitle: Text(
-                                        song.artist,
-                                        style: TextStyle(color: textColor.withOpacity(0.4)),
-                                        maxLines: 1,
+                                        maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                       trailing: Icon(Icons.auto_awesome, color: primaryColor.withOpacity(0.5)),
@@ -584,7 +568,7 @@ class _MiniPlayerContent extends StatelessWidget {
                                         await playerService.addToQueue(song);
                                         final newIndex = playerService.playlist.length - 1;
                                         await playerService.seekToTrack(newIndex);
-                                        playerService.populateAutoplayQueue(appProvider.allSongs);
+                                        playerService.populateAutoplayQueue(appProvider.trendingSongs);
                                         if (context.mounted) Navigator.pop(context);
                                       },
                                     ),

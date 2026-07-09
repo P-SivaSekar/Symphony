@@ -147,19 +147,22 @@ void showSongOptionsBottomSheet(BuildContext context, Song song, {bool isFullScr
                 if (!kIsWeb)
                   ListTile(
                     leading: Icon(
-                      isDownloaded ? Icons.download_done : Icons.download,
-                      color: isDownloaded ? Colors.green : textColor,
+                      isDownloaded ? Icons.delete_outline : Icons.download,
+                      color: isDownloaded ? Colors.redAccent : textColor,
                     ),
                     title: Text(
                       isDownloaded
-                          ? 'Downloaded'
+                          ? 'Delete from Downloads'
                           : (isDownloading ? 'Downloading...' : 'Download'),
-                      style: TextStyle(color: textColor),
+                      style: TextStyle(color: isDownloaded ? Colors.redAccent : textColor),
                     ),
                     onTap: () {
                       if (!isDownloaded && !isDownloading) {
                         appProvider.downloadSong(song);
                         UIUtils.showPopup(context, 'Downloading song...');
+                      } else if (isDownloaded) {
+                        appProvider.deleteDownloadedSong(song.id);
+                        UIUtils.showPopup(context, 'Deleted from downloads');
                       }
                       Navigator.pop(context);
                     },

@@ -13,6 +13,7 @@ import 'glassmorphic_component.dart';
 import 'yt_music_player.dart';
 import 'download_button.dart';
 import '../utils/song_options_bottom_sheet.dart';
+import '../services/saavn_service.dart';
 
 class PlaylistScreen extends StatefulWidget {
   final dynamic playlist; // Can be a Playlist model or a Map for "All Songs"
@@ -34,6 +35,35 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
   final TextEditingController _searchController = TextEditingController();
   bool _isMultiSelectMode = false;
   Set<String> _selectedSongs = {};
+  bool _isLoadingSaavn = false;
+  List<Song> _saavnSongs = [];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.playlist is Playlist) {
+      final pl = widget.playlist as Playlist;
+      if (pl.isGlobal) {
+        _fetchSaavnPlaylistSongs(pl.id);
+      }
+    }
+    if (widget.autoOpenAddSongs && widget.playlist is Playlist) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showAddSongsModal(context, widget.playlist as Playlist);
+      });
+    }
+  }
+
+  Future<void> _fetchSaavnPlaylistSongs(String id) async {
+    setState(() => _isLoadingSaavn = true);
+    final songs = await SaavnService.fetchPlaylistSongs(id);
+    if (mounted) {
+      setState(() {
+        _saavnSongs = songs;
+        _isLoadingSaavn = false;
+      });
+    }
+  }
 
   void _showRenamePlaylistDialog(
     BuildContext context,
@@ -111,16 +141,6 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
     );
   }
 
-  @override
-  void initState() {
-    super.initState();
-    if (widget.autoOpenAddSongs && widget.playlist is Playlist) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _showAddSongsModal(context, widget.playlist as Playlist);
-      });
-    }
-  }
-
   void _showAddSongsModal(BuildContext context, Playlist currentPlaylist) {
     showModalBottomSheet(
       context: context,
@@ -159,9 +179,13 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
           orElse: () => widget.playlist,
         ),
       );
-      baseSongs = appProvider.allSongs
-          .where((s) => p.songIds.contains(s.id))
-          .toList();
+      if (pl.isGlobal) {
+        baseSongs = _saavnSongs;
+      } else {
+        baseSongs = appProvider.allSongs
+            .where((s) => p.songIds.contains(s.id))
+            .toList();
+      }
     }
 
     // Apply search filter
@@ -228,7 +252,22 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                 });
               },
             )
-          else if (!_isMultiSelectMode && isCustomPlaylist)
+          else if (_isMultiSelectMode &&
+                   _selectedSongs.isNotEmpty &&
+                   name == 'Downloads')
+            IconButton(
+              icon: const Icon(Icons.delete, color: Colors.red),
+              onPressed: () async {
+                for (final id in _selectedSongs) {
+                  await appProvider.deleteDownloadedSong(id);
+                }
+                setState(() {
+                  _isMultiSelectMode = false;
+                  _selectedSongs.clear();
+                });
+              },
+            )
+          else if (!_isMultiSelectMode && (isCustomPlaylist || name == 'Downloads'))
             IconButton(
               icon: Icon(Icons.checklist, color: textColor),
               onPressed: () {
@@ -382,11 +421,9 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                             borderRadius: 30,
                             child: ElevatedButton.icon(
                               onPressed: () {
-                                playerService.setShuffle(true);
-                                final initialIndex = displaySongs.length > 1
-                                    ? math.Random().nextInt(displaySongs.length)
-                                    : 0;
-                                playAndOpenPlayer(context, displaySongs, initialIndex);
+                                playerService.setShuffle(false);
+                                final shuffledSongs = List<Song>.from(displaySongs)..shuffle();
+                                playAndOpenPlayer(context, shuffledSongs, 0);
                               },
                               icon: Icon(Icons.shuffle, color: textColor),
                               label: Text(
@@ -483,19 +520,21 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                     ),
                   ),
                 Expanded(
-                  child: displaySongs.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                "No songs found.",
-                                style: TextStyle(
-                                  color: textColor.withOpacity(0.7),
-                                ),
-                              ),
-                              if (isCustomPlaylist && _searchQuery.isEmpty)
-                                const SizedBox(height: 20),
+                  child: _isLoadingSaavn
+                      ? Center(child: CircularProgressIndicator(color: primaryColor))
+                      : displaySongs.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    "No songs found.",
+                                    style: TextStyle(
+                                      color: textColor.withOpacity(0.7),
+                                    ),
+                                  ),
+                                  if (isCustomPlaylist && _searchQuery.isEmpty)
+                                    const SizedBox(height: 20),
                               if (isCustomPlaylist && _searchQuery.isEmpty)
                                 GlassContainer(
                                   borderRadius: 30,

@@ -5,9 +5,11 @@ import '../models/playlist_model.dart';
 import 'playlist_screen.dart';
 import 'yt_music_player.dart';
 import 'glassmorphic_component.dart';
+import 'playlist_card.dart';
 
 class AllPlaylistsScreen extends StatefulWidget {
-  const AllPlaylistsScreen({super.key});
+  final bool isExplore;
+  const AllPlaylistsScreen({super.key, this.isExplore = false});
 
   @override
   State<AllPlaylistsScreen> createState() => _AllPlaylistsScreenState();
@@ -182,24 +184,21 @@ class _AllPlaylistsScreenState extends State<AllPlaylistsScreen> {
     final isDark = theme.brightness == Brightness.dark;
     final textColor = theme.colorScheme.onSurface;
 
-    final fixedPlaylists = <Playlist>[
-      Playlist(id: 'all_songs', name: 'All Songs', creatorId: 'system', songIds: appProvider.allSongs.map((s) => s.id).toList()),
-    ];
-    try {
-      final trending = appProvider.globalPlaylists.firstWhere((p) => p.name.toLowerCase().contains('trending'));
-      fixedPlaylists.add(trending);
-    } catch (e) {
-      // No trending playlist found
+    final displayPlaylists = <Playlist>[];
+    if (widget.isExplore) {
+      displayPlaylists.addAll(appProvider.globalPlaylists);
+    } else {
+      displayPlaylists.add(Playlist(id: 'liked_songs', name: 'Liked', creatorId: 'system', songIds: appProvider.userProfile?.likedSongs ?? []));
+      displayPlaylists.add(Playlist(id: 'downloaded_songs', name: 'Downloads', creatorId: 'system', songIds: appProvider.downloadedSongs.map((s) => s.id).toList()));
+      displayPlaylists.addAll(appProvider.userPlaylists);
     }
-    fixedPlaylists.add(Playlist(id: 'liked_songs', name: 'Liked', creatorId: 'system', songIds: appProvider.userProfile?.likedSongs ?? []));
-    fixedPlaylists.add(Playlist(id: 'downloaded_songs', name: 'Downloads', creatorId: 'system', songIds: appProvider.downloadedSongs.map((s) => s.id).toList()));
 
     return Scaffold(
       appBar: AppBar(
         title: Text(
           _isMultiSelectMode
               ? "${_selectedPlaylists.length} Selected"
-              : "All Playlists",
+              : (widget.isExplore ? "Explore" : "Your Playlists"),
           style: TextStyle(color: textColor, fontWeight: FontWeight.bold),
         ),
         backgroundColor: Colors.transparent,
@@ -217,24 +216,26 @@ class _AllPlaylistsScreenState extends State<AllPlaylistsScreen> {
               )
             : null,
         actions: [
-          if (_isMultiSelectMode && _selectedPlaylists.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.delete, color: Colors.red),
-              onPressed: () => _confirmDeletePlaylist(
-                context,
-                _selectedPlaylists.toList(),
-                appProvider,
+          if (!widget.isExplore) ...[
+            if (_isMultiSelectMode && _selectedPlaylists.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.delete, color: Colors.red),
+                onPressed: () => _confirmDeletePlaylist(
+                  context,
+                  _selectedPlaylists.toList(),
+                  appProvider,
+                ),
+              )
+            else if (!_isMultiSelectMode)
+              IconButton(
+                icon: Icon(Icons.checklist, color: textColor),
+                onPressed: () {
+                  setState(() {
+                    _isMultiSelectMode = true;
+                  });
+                },
               ),
-            )
-          else if (!_isMultiSelectMode)
-            IconButton(
-              icon: Icon(Icons.checklist, color: textColor),
-              onPressed: () {
-                setState(() {
-                  _isMultiSelectMode = true;
-                });
-              },
-            ),
+          ]
         ],
       ),
       extendBodyBehindAppBar: true,
@@ -261,18 +262,16 @@ class _AllPlaylistsScreenState extends State<AllPlaylistsScreen> {
             child: GridView.builder(
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.only(left: 24, right: 24, top: 24, bottom: 24 + 64),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
                 mainAxisSpacing: 16,
                 crossAxisSpacing: 16,
-                childAspectRatio: 0.85,
+                childAspectRatio: widget.isExplore ? 1.0 : 0.85,
               ),
-              itemCount: fixedPlaylists.length + appProvider.userPlaylists.length,
+              itemCount: displayPlaylists.length,
               itemBuilder: (context, index) {
-                final isFixed = index < fixedPlaylists.length;
-                final playlist = isFixed 
-                    ? fixedPlaylists[index]
-                    : appProvider.userPlaylists[index - fixedPlaylists.length];
+                final playlist = displayPlaylists[index];
+                final isFixed = widget.isExplore || playlist.id == 'liked_songs' || playlist.id == 'downloaded_songs';
                 final songCount = playlist.songIds.length;
                 final isSelected = !isFixed && _selectedPlaylists.contains(playlist.id);
 
@@ -297,60 +296,66 @@ class _AllPlaylistsScreenState extends State<AllPlaylistsScreen> {
                     }
                   },
                   onLongPress: () {
-                    if (!isFixed && !_isMultiSelectMode) {
+                    if (!isFixed && !_isMultiSelectMode && !widget.isExplore) {
                       _showPlaylistOptions(context, playlist, appProvider);
                     }
                   },
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      GlassContainer(
-                        borderRadius: 16,
-                        padding: const EdgeInsets.all(12),
-                        border: isSelected
-                            ? Border.all(
-                                color: theme.colorScheme.primary,
-                                width: 2,
-                              )
-                            : null,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Container(
-                              width: 60,
-                              height: 60,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(12),
-                                color: isDark ? Colors.white10 : Colors.black12,
+                      if (widget.isExplore)
+                        PlaylistCard(
+                          playlist: playlist,
+                          isTrending: playlist.name.toLowerCase().contains('trending'),
+                        )
+                      else
+                        GlassContainer(
+                          borderRadius: 16,
+                          padding: const EdgeInsets.all(12),
+                          border: isSelected
+                              ? Border.all(
+                                  color: theme.colorScheme.primary,
+                                  width: 2,
+                                )
+                              : null,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                width: 60,
+                                height: 60,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  color: isDark ? Colors.white10 : Colors.black12,
+                                ),
+                                child: Icon(
+                                  Icons.queue_music,
+                                  color: textColor.withOpacity(0.8),
+                                  size: 30,
+                                ),
                               ),
-                              child: Icon(
-                                Icons.queue_music,
-                                color: textColor.withOpacity(0.8),
-                                size: 30,
+                              const SizedBox(height: 12),
+                              Text(
+                                playlist.name,
+                                style: TextStyle(
+                                  color: textColor,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              playlist.name,
-                              style: TextStyle(
-                                color: textColor,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
+                              const SizedBox(height: 4),
+                              Text(
+                                "$songCount songs",
+                                style: TextStyle(
+                                  color: textColor.withOpacity(0.7),
+                                  fontSize: 12,
+                                ),
                               ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              "$songCount songs",
-                              style: TextStyle(
-                                color: textColor.withOpacity(0.7),
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
                       if (isSelected)
                         Positioned(
                           top: 8,

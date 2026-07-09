@@ -51,6 +51,9 @@ class PlayerService extends ChangeNotifier {
     return url;
   }
 
+  // Play history callback
+  void Function(Song)? onSongPlayed;
+
   PlayerService() {
     _initPlayer();
   }
@@ -176,7 +179,7 @@ class PlayerService extends ChangeNotifier {
 
   void populateAutoplayQueue(List<Song> allSongs) {
     if (_autoplayQueue.length < 10) {
-      final available = allSongs.where((s) => s.audioUrl.isNotEmpty && !_autoplayQueue.any((aq) => aq.id == s.id)).toList();
+      final available = allSongs.where((s) => !_autoplayQueue.any((aq) => aq.id == s.id)).toList();
       available.shuffle();
       _autoplayQueue.addAll(available.take(10 - _autoplayQueue.length));
       notifyListeners();
@@ -278,6 +281,7 @@ class PlayerService extends ChangeNotifier {
         final song = _playlist[_currentIndex];
         if (_sessionHistory.isEmpty || _sessionHistory.last.id != song.id) {
           _sessionHistory.add(song);
+          onSongPlayed?.call(song);
         }
 
         _savePlayerIndex();
@@ -289,7 +293,9 @@ class PlayerService extends ChangeNotifier {
           _sessionHistory.isEmpty &&
           index < _playlist.length) {
         // First song loaded
-        _sessionHistory.add(_playlist[index]);
+        final song = _playlist[index];
+        _sessionHistory.add(song);
+        onSongPlayed?.call(song);
         notifyListeners();
 
         // Preload next track for the first song

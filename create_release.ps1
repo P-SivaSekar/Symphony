@@ -1,9 +1,9 @@
 $token = $env:GITHUB_TOKEN
 $owner = "P-SivaSekar"
 $repo = "Symphony"
-$tag = "v1.0.0.2"
-$name = "Symphony v1.0.0.2"
-$body = "Release of Symphony 1.0.0.2"
+$tag = "v1.0.0.3"
+$name = "Symphony v1.0.0.3"
+$body = "Release of Symphony 1.0.0.3"
 $assetPath = "D:\Studies\Projects\Music Player\Symphony.apk"
 
 Write-Host "Creating release..."

@@ -776,52 +776,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   }
 
                                   List<Widget> gridItems = [];
-                                  gridItems.add(
-                                    GestureDetector(
-                                      onTap: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) => PlaylistScreen(
-                                              playlist: Playlist(
-                                                id: 'all_songs',
-                                                name: 'All Songs',
-                                                creatorId: 'system',
-                                                songIds: appProvider.allSongs.map((s) => s.id).toList(),
-                                                coverUrl: '',
-                                              ),
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                      child: GlassContainer(
-                                        borderRadius: 16,
-                                        padding: const EdgeInsets.all(12),
-                                        child: Column(
-                                          mainAxisAlignment: MainAxisAlignment.center,
-                                          children: [
-                                            Container(
-                                              width: 60,
-                                              height: 60,
-                                              decoration: BoxDecoration(
-                                                color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
-                                                borderRadius: BorderRadius.circular(12),
-                                              ),
-                                              child: Icon(Icons.library_music, color: Theme.of(context).colorScheme.primary, size: 30),
-                                            ),
-                                            const SizedBox(height: 12),
-                                            Text(
-                                              'All Songs',
-                                              style: TextStyle(color: Theme.of(context).textTheme.bodyLarge?.color, fontWeight: FontWeight.bold),
-                                              textAlign: TextAlign.center,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  );
                                   for (int i = 0; i < displayCount; i++) {
                                     final playlist = playlists[i];
                                     final songCount = playlist.songIds.length;

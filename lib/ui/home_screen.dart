@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,6 +15,8 @@ import '../models/song_model.dart';
 import '../models/playlist_model.dart';
 import 'profile_screen.dart';
 import '../utils/play_helper.dart';
+import '../services/saavn_service.dart';
+import 'playlist_card.dart';
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback? onNavigateToProfile;
@@ -27,14 +30,18 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
-  bool _showcaseVisible = false;
+  bool _showcaseVisible = true;
   List<Song> _forYouSongs = [];
   bool _hasGeneratedForYou = false;
+  List<Song> _listenAgainSongs = [];
+  bool _hasGeneratedListenAgain = false;
+  List<Playlist> _cachedExploreList = [];
+  bool _hasGeneratedExplore = false;
 
-  void _generateForYouSongs(List<Song> allSongs) {
-    if (allSongs.isEmpty || _hasGeneratedForYou) return;
-    final shuffled = List<Song>.from(allSongs)..shuffle();
-    _forYouSongs = shuffled.take(9).toList();
+  void _generateForYouSongs(List<Song> sourceSongs) {
+    if (sourceSongs.isEmpty || _hasGeneratedForYou) return;
+    final shuffled = List<Song>.from(sourceSongs)..shuffle();
+    _forYouSongs = shuffled.take(50).toList();
     _hasGeneratedForYou = true;
   }
 
@@ -155,16 +162,31 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     final appProvider = Provider.of<AppProvider>(context);
     final playerService = Provider.of<PlayerService>(context);
 
-    if (!_hasGeneratedForYou && appProvider.allSongs.isNotEmpty) {
-      _generateForYouSongs(appProvider.allSongs);
+    if (!_hasGeneratedForYou && appProvider.trendingSongs.isNotEmpty) {
+      _generateForYouSongs(appProvider.trendingSongs);
     }
 
-    List<Song> recentlyAdded = List.from(appProvider.allSongs);
-    // Assuming songs added recently are at the end, reverse it for "Recently Added"
-    recentlyAdded = recentlyAdded.reversed.toList();
+    if (!_hasGeneratedListenAgain && appProvider.playHistory.isNotEmpty) {
+      _listenAgainSongs = List.from(appProvider.playHistory)..shuffle();
+      _hasGeneratedListenAgain = true;
+    }
+
+    if (!_hasGeneratedExplore && appProvider.globalPlaylists.isNotEmpty) {
+      Playlist? trendingPlaylist;
+      try {
+        trendingPlaylist = appProvider.globalPlaylists.firstWhere((p) => p.name.toLowerCase().contains('trending'));
+      } catch (e) {
+        trendingPlaylist = null;
+      }
+      final otherGlobal = appProvider.globalPlaylists.where((p) => !p.name.toLowerCase().contains('trending')).toList();
+      _cachedExploreList = [];
+      if (trendingPlaylist != null) _cachedExploreList.add(trendingPlaylist);
+      _cachedExploreList.addAll(otherGlobal);
+      _cachedExploreList.shuffle();
+      _hasGeneratedExplore = true;
+    }
 
     List<dynamic> mergedPlaylists = [];
-    mergedPlaylists.add(Playlist(id: 'all_songs', name: 'All Songs', creatorId: 'system', songIds: appProvider.allSongs.map((s) => s.id).toList()));
 
     Playlist? trendingPlaylist;
     List<Playlist> otherGlobal = [];
@@ -194,10 +216,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: () async {
+            await appProvider.fetchSongs();
             setState(() {
               _hasGeneratedForYou = false;
             });
-            await Future.delayed(const Duration(milliseconds: 500));
+            // Manually refresh the data
+            appProvider.fetchSongs();
+            appProvider.fetchPlaylists();
+            if (appProvider.playHistory.isNotEmpty) {
+              setState(() {
+                _listenAgainSongs = List.from(appProvider.playHistory)..shuffle();
+              });
+            }
+            await Future.delayed(const Duration(seconds: 1));
           },
           child: CustomScrollView(
             slivers: [
@@ -259,7 +290,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   ],
                 ),
                 IconButton(
-                  icon: const Icon(Icons.person_outline),
+                  icon: appProvider.userProfile?.profilePicUrl.isNotEmpty == true
+                      ? CircleAvatar(
+                          radius: 16,
+                          backgroundImage: NetworkImage(appProvider.userProfile!.profilePicUrl),
+                          backgroundColor: Colors.transparent,
+                        )
+                      : const Icon(Icons.person_outline),
                   onPressed: widget.onNavigateToProfile ?? () {
                     Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
                   },
@@ -272,36 +309,137 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (appProvider.trendingSongs.isNotEmpty) ...[
+                    // Top Greeting & Vibe Chips
+                    Builder(
+                      builder: (context) {
+                        var hour = DateTime.now().hour;
+                        String greetingTime = 'Good Evening';
+                        if (hour < 12) greetingTime = 'Good Morning';
+                        else if (hour < 17) greetingTime = 'Good Afternoon';
+                        final username = appProvider.userProfile?.username.split(' ')[0] ?? 'User';
+                        return Text(
+                          '$greetingTime, $username!',
+                          style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
+                        );
+                      }
+                    ),
+                    const SizedBox(height: 24),
+
+                    // For You (3x3 Grid)
+                    if (_forYouSongs.isNotEmpty) ...[
                       const Text(
-                        'Trending Now',
+                        'For You',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
+                      GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          childAspectRatio: 0.75,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 12,
+                        ),
+                        itemCount: _forYouSongs.length > 9 ? 9 : _forYouSongs.length,
+                        itemBuilder: (context, index) {
+                          final song = _forYouSongs[index];
+                          return GestureDetector(
+                            onTap: () => playAndOpenPlayer(context, [song], 0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Image.network(
+                                      song.coverUrl,
+                                      fit: BoxFit.cover,
+                                      width: double.infinity,
+                                      errorBuilder: (_, __, ___) => Container(color: Colors.grey),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  song.title,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+
+                    // Listen Again (Horizontal)
+                    if (_listenAgainSongs.isNotEmpty) ...[
+                      const Text(
+                        'Listen Again',
                         style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 12),
                       SizedBox(
-                        height: 220,
+                        height: 160,
                         child: ListView.builder(
                           scrollDirection: Axis.horizontal,
-                          itemCount: appProvider.trendingSongs.length,
+                          itemCount: _listenAgainSongs.length > 20 ? 20 : _listenAgainSongs.length,
                           itemBuilder: (context, index) {
-                            final song = appProvider.trendingSongs[index];
-                            return _buildSongCard(song, playerService, appProvider.trendingSongs, index);
+                            final song = _listenAgainSongs[index];
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 12),
+                              child: GestureDetector(
+                                onTap: () => playAndOpenPlayer(context, [song], 0),
+                                child: SizedBox(
+                                  width: 100,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(12),
+                                        child: Image.network(
+                                          song.coverUrl,
+                                          width: 100,
+                                          height: 100,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) => Container(width: 100, height: 100, color: Colors.grey),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        song.title,
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
                           },
                         ),
                       ),
                       const SizedBox(height: 24),
                     ],
-                    if (mergedPlaylists.isNotEmpty) ...[
+
+
+
+                    // Explore Playlists (Global Saavn Playlists)
+                    if (_cachedExploreList.isNotEmpty) ...[
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           const Text(
-                            'Playlists',
+                            'Explore',
                             style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                           ),
                           TextButton(
                             onPressed: () {
-                              Navigator.push(context, MaterialPageRoute(builder: (_) => const AllPlaylistsScreen()));
+                              Navigator.push(context, MaterialPageRoute(builder: (_) => const AllPlaylistsScreen(isExplore: true)));
                             },
                             child: const Text('See All'),
                           ),
@@ -309,87 +447,29 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       ),
                       const SizedBox(height: 12),
                       SizedBox(
-                        height: 160,
+                        height: 140, // 1:1 aspect ratio based on width 140
                         child: ListView.builder(
                           scrollDirection: Axis.horizontal,
-                          itemCount: mergedPlaylists.length,
+                          physics: const BouncingScrollPhysics(),
+                          itemCount: _cachedExploreList.length,
                           itemBuilder: (context, index) {
-                            final item = mergedPlaylists[index];
-                            if (item == 'CREATE_PLAYLIST') {
-                              return _buildCreatePlaylistCard(appProvider);
-                            }
-                            return _buildPlaylistCard(item as Playlist);
+                            final playlist = _cachedExploreList[index];
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 16.0),
+                              child: SizedBox(
+                                width: 140,
+                                child: PlaylistCard(
+                                  playlist: playlist,
+                                  isTrending: playlist.name.toLowerCase().contains('trending'),
+                                ),
+                              ),
+                            );
                           },
                         ),
                       ),
                       const SizedBox(height: 24),
                     ],
-                    if (_forYouSongs.isNotEmpty) ...[
-                      const Text(
-                        'For You',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 12),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 460),
-                          child: GridView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: 150,
-                              childAspectRatio: 0.8,
-                              crossAxisSpacing: 10,
-                              mainAxisSpacing: 10,
-                            ),
-                            itemCount: _forYouSongs.length,
-                            itemBuilder: (context, index) {
-                              final song = _forYouSongs[index];
-                              return _buildGridSongCard(song, playerService, _forYouSongs, index);
-                            },
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                    ],
-                    if (recentlyAdded.isNotEmpty) ...[
-                      const Text(
-                        'Recently Added',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 12),
-                      ListView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: recentlyAdded.length > 10 ? 10 : recentlyAdded.length,
-                        itemBuilder: (context, index) {
-                          final song = recentlyAdded[index];
-                          return GlassContainer(
-                            borderRadius: 12,
-                            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-                            child: ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: ClipRRect(
-                                borderRadius: BorderRadius.circular(8),
-                                child: Image.network(
-                                  song.coverUrl,
-                                  width: 50,
-                                  height: 50,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Container(width: 50, height: 50, color: Colors.grey),
-                                ),
-                              ),
-                              title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                              subtitle: Text(song.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
-                              onTap: () {
-                                playAndOpenPlayer(context, recentlyAdded, index);
-                              },
-                            ),
-                          );
-                        },
-                      ),
-                    ],
+
                     const SizedBox(height: 100), // padding for bottom bar
                   ],
                 ),
@@ -415,7 +495,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             children: [
               Expanded(
                 child: Hero(
-                  tag: 'cover_${song.id}',
+                  tag: 'trending_cover_${song.id}_$index',
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
                     child: Image.network(
@@ -441,56 +521,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 overflow: TextOverflow.ellipsis,
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPlaylistCard(Playlist playlist) {
-    bool isTrending = playlist.name.toLowerCase().contains('trending');
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(context, MaterialPageRoute(builder: (_) => PlaylistScreen(playlist: playlist)));
-      },
-      child: Padding(
-        padding: const EdgeInsets.only(right: 12.0),
-        child: GlassContainer(
-          borderRadius: 16,
-          padding: EdgeInsets.zero,
-          child: Container(
-            width: 140,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              gradient: LinearGradient(
-                colors: isTrending 
-                    ? [Colors.deepOrange.withValues(alpha: 0.7), Colors.redAccent.withValues(alpha: 0.7)]
-                    : Theme.of(context).brightness == Brightness.dark ? [Colors.white24, Colors.white12] : [Colors.blueAccent.withValues(alpha: 0.6), Colors.purpleAccent.withValues(alpha: 0.6)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  isTrending ? Icons.local_fire_department : Icons.queue_music,
-                  color: Colors.white,
-                  size: 40,
-                ),
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                  child: Text(
-                    playlist.name,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
           ),
         ),
       ),

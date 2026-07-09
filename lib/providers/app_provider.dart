@@ -14,6 +14,7 @@ import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'dart:async';
 import 'package:http/http.dart' as http;
+import '../services/saavn_service.dart';
 import '../models/notification_model.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -36,6 +37,7 @@ class AppProvider extends ChangeNotifier {
   List<Playlist> _userPlaylists = [];
   List<Song> _downloadedSongs = [];
   Set<String> _downloadingSongIds = {};
+  List<Song> _playHistory = [];
 
   List<NotificationModel> _notifications = [];
   StreamSubscription<QuerySnapshot>? _notificationSubscription;
@@ -57,6 +59,7 @@ class AppProvider extends ChangeNotifier {
   List<Playlist> get globalPlaylists => _globalPlaylists;
   List<Playlist> get userPlaylists => _userPlaylists;
   List<Song> get downloadedSongs => _downloadedSongs;
+  List<Song> get playHistory => _playHistory;
   List<NotificationModel> get notifications => _notifications;
   int get adminTabIndex => _adminTabIndex;
   Map<String, dynamic>? get selectedRequestForUpload => _selectedRequestForUpload;
@@ -88,8 +91,42 @@ class AppProvider extends ChangeNotifier {
 
   AppProvider() {
     _loadSettings();
+    _loadPlayHistory();
     _initAuth();
     loadDownloadedSongs();
+  }
+
+  Future<void> _loadPlayHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    final str = prefs.getString('playHistory');
+    if (str != null) {
+      try {
+        final List<dynamic> decoded = jsonDecode(str);
+        _playHistory = decoded.map((e) {
+          final map = e as Map<String, dynamic>;
+          return Song.fromMap(map, map['id']?.toString() ?? '');
+        }).toList();
+        notifyListeners();
+      } catch (e) {
+        print("Error loading play history: $e");
+      }
+    }
+  }
+
+  Future<void> addToPlayHistory(Song song) async {
+    _playHistory.removeWhere((s) => s.id == song.id);
+    _playHistory.insert(0, song);
+    if (_playHistory.length > 50) {
+      _playHistory = _playHistory.sublist(0, 50);
+    }
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = jsonEncode(_playHistory.map((s) {
+      final m = s.toMap();
+      m['id'] = s.id;
+      return m;
+    }).toList());
+    prefs.setString('playHistory', encoded);
   }
 
   Future<void> _loadSettings() async {
@@ -561,20 +598,7 @@ class AppProvider extends ChangeNotifier {
     isPlaylistsLoading = true;
     notifyListeners();
 
-    _globalPlaylists = [];
     _userPlaylists = [];
-
-    try {
-      final globalSnap = await FirebaseFirestore.instance
-          .collection('playlists')
-          .where('isGlobal', isEqualTo: true)
-          .get();
-      _globalPlaylists = globalSnap.docs
-          .map((doc) => Playlist.fromMap(doc.data(), doc.id))
-          .toList();
-    } catch (e) {
-      print("Error fetching global playlists: $e");
-    }
 
     if (_user != null) {
       try {
@@ -860,372 +884,46 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final querySnapshot = await FirebaseFirestore.instance
-          .collection('songs')
-          .get();
-      if (querySnapshot.docs.isNotEmpty) {
-        final docs = querySnapshot.docs.toList();
-        docs.sort((a, b) {
-          final aTime = a.data()['createdAt'] as Timestamp?;
-          final bTime = b.data()['createdAt'] as Timestamp?;
-          if (aTime == null && bTime == null) return 0;
-          if (aTime == null) return -1;
-          if (bTime == null) return 1;
-          return aTime.compareTo(bTime);
-        });
-        
-        _allSongs = docs
-            .map((doc) {
-              final s = Song.fromMap(doc.data(), doc.id);
-              print("LOADED SONG FROM FIRESTORE -> ID: ${s.id} | Title: '${s.title}' | CoverUrl: '${s.coverUrl}'");
-              return s;
-            })
-            .toList();
-        _trendingSongs = _allSongs.where((song) => song.isTrending).toList();
-        _resolveSaavnCovers(); // Fetch correct JioSaavn covers in the background
-      } else {
-        print("Firestore songs collection is empty!");
-        _loadDemoData();
-      }
+      final homeData = await SaavnService.fetchTamilHomeData();
+      _trendingSongs = List<Song>.from(homeData['trending'] as List? ?? []);
+      
+      // Update global playlists with Saavn playlists
+      _globalPlaylists = List<Playlist>.from(homeData['playlists'] as List? ?? []);
+      
+      // Clear legacy allSongs since we fetch on demand
+      _allSongs = [];
     } catch (e) {
-      print("Error fetching songs from Firestore: $e");
-      _loadDemoData();
+      print("Error fetching songs from Saavn: $e");
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  Future<void> _resolveSaavnCovers() async {
-    final prefs = await SharedPreferences.getInstance();
-    bool updated = false;
-
-    for (int i = 0; i < _allSongs.length; i++) {
-      final song = _allSongs[i];
-
-      // Hardcoded cover art override for the song "Tum Tum" to prevent Hindi cover art mismatch
-      if (song.title.toLowerCase().trim() == 'tum tum') {
-        const overrideCover = 'https://c.saavncdn.com/523/Pathala-From-Enemy-Tamil-Tamil-2021-20260107193516-500x500.jpg';
-        _allSongs[i] = song.copyWith(coverUrl: overrideCover);
-        updated = true;
-
-        // Sync to Firestore if current cover is different
-        if (song.coverUrl != overrideCover) {
-          try {
-            final user = FirebaseAuth.instance.currentUser;
-            if (user != null) {
-              await FirebaseFirestore.instance.collection('songs').doc(song.id).update({
-                'coverUrl': overrideCover,
-              });
-              print("Synced hardcoded cover override for 'Tum Tum' to Firestore.");
-            }
-          } catch (e) {
-            print("Failed to sync hardcoded override to Firestore: $e");
-          }
-        }
-        continue;
-      }
-
-      final cacheKey = 'saavn_cover_${song.id}';
-      final cachedUrl = prefs.getString(cacheKey);
-
-      // Fast Path: Check if cached cover is available locally
-      if (cachedUrl != null && cachedUrl.isNotEmpty) {
-        _allSongs[i] = song.copyWith(coverUrl: cachedUrl);
-        updated = true;
-
-        // Check if we need to sync this to Firestore
-        if (!song.coverUrl.startsWith('https://c.saavncdn.com')) {
-          try {
-            final user = FirebaseAuth.instance.currentUser;
-            if (user != null) {
-              await FirebaseFirestore.instance.collection('songs').doc(song.id).update({
-                'coverUrl': cachedUrl,
-              });
-              print("Synced cached cover for '${song.title}' to Firestore.");
-            }
-          } catch (e) {
-            print("Failed to sync cached cover to Firestore: $e");
-          }
-        }
-        continue;
-      }
-
-      // If cover is missing, fetch it
-      try {
-        String searchTerm = song.title;
-        if (song.artist.isNotEmpty && 
-            song.artist.toLowerCase() != 'unknown' && 
-            !song.artist.toLowerCase().contains('unknown') && 
-            !song.artist.toLowerCase().contains('various')) {
-          searchTerm += ' ${song.artist}';
-        } else {
-          searchTerm += ' Tamil';
-        }
-        final query = Uri.encodeComponent(searchTerm);
-        final response = await http.get(Uri.parse(
-          'https://jiosaavn-api.vercel.app/search?query=$query'
-        ));
-        
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body);
-          String? cover = cachedUrl;
-          
-          if (data['status'] == true && data['results'] != null && data['results'].isNotEmpty) {
-            final results = List<dynamic>.from(data['results']);
-            
-            // Helper function to check overlap score
-            double getOverlapScore(String query, String candidate) {
-              final qWords = query.toLowerCase().replaceAll(RegExp(r'[^a-z0-9 ]'), '').split(' ').where((w) => w.length > 2).toList();
-              final cWords = candidate.toLowerCase().replaceAll(RegExp(r'[^a-z0-9 ]'), '').split(' ').where((w) => w.length > 2).toList();
-              if (qWords.isEmpty || cWords.isEmpty) return 0.0;
-              
-              int matches = 0;
-              for (var qw in qWords) {
-                for (var cw in cWords) {
-                  if (cw.contains(qw) || qw.contains(cw)) {
-                    matches++;
-                    break;
-                  }
-                }
-              }
-              return matches / qWords.length;
-            }
-
-            // Find the best Tamil result
-            Map<String, dynamic>? bestResult;
-            double highestScore = 0.0;
-
-            for (var res in results) {
-              final moreInfo = res['more_info'];
-              final album = (res['album'] ?? '').toString().toLowerCase();
-              
-              bool isTamil = false;
-              if (moreInfo != null && (moreInfo['language'] == 'Tamil' || moreInfo['language'] == 'tamil')) {
-                isTamil = true;
-              } else if (album.contains('tamil') || (res['description'] ?? '').toString().toLowerCase().contains('tamil')) {
-                isTamil = true;
-              }
-
-              if (isTamil) {
-                final score = getOverlapScore(song.title, res['title'] ?? '');
-                if (score > highestScore) {
-                  highestScore = score;
-                  bestResult = Map<String, dynamic>.from(res);
-                }
-              }
-            }
-
-            // Fallback: If overlap score is too low (< 0.3), try searching for just the first word
-            if (bestResult == null || highestScore < 0.3) {
-              final words = song.title.replaceAll(RegExp(r'[^a-zA-Z0-9 ]'), '').split(' ').where((w) => w.length > 3).toList();
-              if (words.isNotEmpty) {
-                final fallbackQuery = Uri.encodeComponent(words[0]);
-                final fallbackResponse = await http.get(Uri.parse(
-                  'https://jiosaavn-api.vercel.app/search?query=$fallbackQuery'
-                ));
-                if (fallbackResponse.statusCode == 200) {
-                  final fallbackData = jsonDecode(fallbackResponse.body);
-                  if (fallbackData['status'] == true && fallbackData['results'] != null && fallbackData['results'].isNotEmpty) {
-                    final fallbackResults = List<dynamic>.from(fallbackData['results']);
-                    Map<String, dynamic>? bestFallback;
-                    double highestFallbackScore = 0.0;
-
-                    for (var res in fallbackResults) {
-                      final moreInfo = res['more_info'];
-                      final album = (res['album'] ?? '').toString().toLowerCase();
-                      
-                      bool isTamil = false;
-                      if (moreInfo != null && (moreInfo['language'] == 'Tamil' || moreInfo['language'] == 'tamil')) {
-                        isTamil = true;
-                      } else if (album.contains('tamil') || (res['description'] ?? '').toString().toLowerCase().contains('tamil')) {
-                        isTamil = true;
-                      }
-
-                      if (isTamil) {
-                        final score = getOverlapScore(song.title, res['title'] ?? '');
-                        if (score > highestFallbackScore) {
-                          highestFallbackScore = score;
-                          bestFallback = Map<String, dynamic>.from(res);
-                        }
-                      }
-                    }
-                    if (bestFallback != null && highestFallbackScore >= 0.3) {
-                      bestResult = bestFallback;
-                    }
-                  }
-                }
-              }
-            }
-
-            // Final fallback to the first Tamil result if still null
-            if (bestResult == null) {
-              for (var res in results) {
-                final moreInfo = res['more_info'];
-                final album = (res['album'] ?? '').toString().toLowerCase();
-                if ((moreInfo != null && (moreInfo['language'] == 'Tamil' || moreInfo['language'] == 'tamil')) || album.contains('tamil')) {
-                  bestResult = Map<String, dynamic>.from(res);
-                  break;
-                }
-              }
-            }
-
-            // Fallback to first result if absolutely no Tamil result found
-            bestResult ??= Map<String, dynamic>.from(results[0]);
-
-            // Get cover if not already cached
-            if (cover == null || cover.isEmpty) {
-              if (bestResult['images'] != null && bestResult['images']['500x500'] != null) {
-                cover = bestResult['images']['500x500'] as String?;
-              } else {
-                cover = bestResult['image'] as String?;
-              }
-              if (cover != null) {
-                cover = cover.replaceAll('50x50', '500x500').replaceAll('150x150', '500x500');
-              }
-            }
-          }
-          
-          bool shouldUpdate = false;
-          final Map<String, dynamic> updateData = {};
-
-          if (cover != null && cover.isNotEmpty && cover != song.coverUrl) {
-            _allSongs[i] = _allSongs[i].copyWith(coverUrl: cover);
-            await prefs.setString(cacheKey, cover);
-            updateData['coverUrl'] = cover;
-            shouldUpdate = true;
-          }
-
-          if (shouldUpdate) {
-            updated = true;
-            try {
-              final user = FirebaseAuth.instance.currentUser;
-              if (user != null && updateData.isNotEmpty) {
-                await FirebaseFirestore.instance.collection('songs').doc(song.id).update(updateData);
-                print("Synched cover for '${song.title}' to Firestore.");
-              }
-            } catch (fsError) {
-              print("Firestore sync error for '${song.title}': $fsError");
-            }
-          }
-        }
-      } catch (e) {
-        print("Error resolving cover for ${song.title}: $e");
-      }
-    }
-
-    if (updated) {
-      _trendingSongs = _allSongs.where((song) => song.isTrending).toList();
-      notifyListeners();
-    }
-  }
-
-  Future<String?> _fetchJioSaavnAudioUrl(String saavnId) async {
-    try {
-      final detailsUrl = 'https://www.jiosaavn.com/api.php?__call=song.getDetails&pids=$saavnId&_format=json&_marker=0&api_version=4&ctx=web6dot0';
-      final detailsResponse = await http.get(
-        Uri.parse(detailsUrl),
-        headers: const {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Referer': 'https://www.jiosaavn.com/',
-        },
-      );
-      if (detailsResponse.statusCode == 200) {
-        final detailsData = jsonDecode(detailsResponse.body);
-        if (detailsData != null && detailsData['songs'] != null && (detailsData['songs'] as List).isNotEmpty) {
-          final songObj = detailsData['songs'][0];
-          final moreInfo = songObj['more_info'];
-          if (moreInfo != null) {
-            final encUrl = moreInfo['encrypted_media_url'] as String?;
-            if (encUrl != null && encUrl.isNotEmpty) {
-              final encodedUrl = Uri.encodeComponent(encUrl);
-              final tokenUrl = 'https://www.jiosaavn.com/api.php?__call=song.generateAuthToken&url=$encodedUrl&bitrate=320&api_version=4&_format=json&ctx=web6dot0&_marker=0';
-              final tokenResponse = await http.get(
-                Uri.parse(tokenUrl),
-                headers: const {
-                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                  'Referer': 'https://www.jiosaavn.com/',
-                },
-              );
-              if (tokenResponse.statusCode == 200) {
-                final tokenData = jsonDecode(tokenResponse.body);
-                if (tokenData != null && tokenData['status'] == 'success') {
-                  return tokenData['auth_url'] as String?;
-                }
-              }
-            }
-          }
-        }
-      }
-    } catch (e) {
-      print("Error fetching JioSaavn audio URL for $saavnId: $e");
-    }
-    return null;
+  void shuffleTrendingSongs() {
+    _trendingSongs.shuffle();
+    notifyListeners();
   }
 
   Future<Song> resolveSongNow(Song song) async {
-    // If it's a local file or a Cloudinary link, it's permanent and we don't need to resolve.
+    // If it's a local file or already resolved, return it
     if (song.audioUrl.isNotEmpty && 
-        (song.audioUrl.startsWith('file://') || song.audioUrl.contains("cloudinary.com"))) {
+        (song.audioUrl.startsWith('file://') || song.audioUrl.startsWith('http'))) {
       return song;
     }
 
     try {
-      String searchTerm = song.title;
-      if (song.artist.isNotEmpty && 
-          song.artist.toLowerCase() != 'unknown' && 
-          !song.artist.toLowerCase().contains('unknown') && 
-          !song.artist.toLowerCase().contains('various')) {
-        searchTerm += ' ${song.artist}';
-      } else {
-        searchTerm += ' Tamil';
-      }
-      final query = Uri.encodeComponent(searchTerm);
-      final response = await http.get(Uri.parse(
-        'https://jiosaavn-api.vercel.app/search?query=$query'
-      ));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['status'] == true && data['results'] != null && (data['results'] as List).isNotEmpty) {
-          final results = List<dynamic>.from(data['results']);
-          Map<String, dynamic>? bestResult;
-          for (var res in results) {
-            final moreInfo = res['more_info'];
-            final album = (res['album'] ?? '').toString().toLowerCase();
-            if ((moreInfo != null && (moreInfo['language'] == 'Tamil' || moreInfo['language'] == 'tamil')) || album.contains('tamil')) {
-              bestResult = Map<String, dynamic>.from(res);
-              break;
-            }
-          }
-          bestResult ??= Map<String, dynamic>.from(results[0]);
-
-          final saavnId = bestResult['id'];
-          
-          String cover = song.coverUrl;
-          if (cover.isEmpty || cover.contains('50x50')) {
-            if (bestResult['images'] != null && bestResult['images']['500x500'] != null) {
-              cover = bestResult['images']['500x500'] as String;
-            } else {
-              cover = bestResult['image'] as String? ?? cover;
-            }
-            cover = cover.replaceAll('50x50', '500x500').replaceAll('150x150', '500x500');
-          }
-
-          // Fetch fresh signed URL from official JioSaavn API using saavnId
-          final freshAudioUrl = await _fetchJioSaavnAudioUrl(saavnId);
-          final audio = freshAudioUrl ?? song.audioUrl;
-
-          final resolvedSong = song.copyWith(coverUrl: cover, audioUrl: audio);
-          
-          // Update in memory so we don't have to resolve again in this session
-          final index = _allSongs.indexWhere((s) => s.id == song.id);
-          if (index != -1) {
-            _allSongs[index] = resolvedSong;
-          }
-
-          return resolvedSong;
+      final audioUrl = await SaavnService.getAudioUrl(song.id);
+      if (audioUrl != null && audioUrl.isNotEmpty) {
+        final resolvedSong = song.copyWith(audioUrl: audioUrl);
+        
+        // Update in memory if it exists in trending
+        final index = _trendingSongs.indexWhere((s) => s.id == song.id);
+        if (index != -1) {
+          _trendingSongs[index] = resolvedSong;
         }
+
+        return resolvedSong;
       }
     } catch (e) {
       print("Error resolving song now: $e");
@@ -1266,43 +964,6 @@ class AppProvider extends ChangeNotifier {
   bool isSongLiked(Song song) {
     if (_userProfile == null) return false;
     return _userProfile!.likedSongs.contains(song.id);
-  }
-
-  /// Demo songs shown when Firestore has no data yet.
-  void _loadDemoData() {
-    _allSongs = [
-      Song(
-        id: 'demo_1',
-        title: 'Adi Podi',
-        artist: 'Hiphop Tamizha',
-        coverUrl:
-            'https://c.saavncdn.com/803/Adi-Podi-From-Meesaya-Murukku-2-Tamil-2026-20260618113605-500x500.jpg',
-        audioUrl:
-            'https://cdn.pixabay.com/audio/2022/05/27/audio_1808f3030e.mp3',
-        isTrending: true,
-      ),
-      Song(
-        id: 'demo_2',
-        title: 'Vaathi Coming',
-        artist: 'Anirudh Ravichander',
-        coverUrl:
-            'https://c.saavncdn.com/225/Master-Tamil-2020-20201217032731-500x500.jpg',
-        audioUrl:
-            'https://cdn.pixabay.com/audio/2022/03/10/audio_c8c8a73467.mp3',
-        isTrending: false,
-      ),
-      Song(
-        id: 'demo_3',
-        title: 'Rowdy Baby',
-        artist: 'Dhanush & Dhee',
-        coverUrl:
-            'https://c.saavncdn.com/344/Maari-2-Tamil-2018-20181105151532-500x500.jpg',
-        audioUrl:
-            'https://cdn.pixabay.com/audio/2022/01/21/audio_31b5810d57.mp3',
-        isTrending: true,
-      ),
-    ];
-    _trendingSongs = _allSongs.where((song) => song.isTrending).toList();
   }
 
   // --- Downloads Functionality ---

@@ -79,7 +79,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _showQueueBottomSheet(BuildContext context, PlayerService playerService, AppProvider appProvider) {
     if (playerService.autoplayEnabled && playerService.autoplayQueue.isEmpty) {
-      playerService.populateAutoplayQueue(appProvider.allSongs);
+      playerService.populateAutoplayQueue(appProvider.trendingSongs);
     }
     
     final theme = Theme.of(context);
@@ -258,13 +258,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                             color: isPlaying ? primaryColor : textColor,
                                             fontWeight: isPlaying ? FontWeight.bold : FontWeight.normal,
                                           ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        subtitle: Text(
-                                          song.artist,
-                                          style: TextStyle(color: textColor.withOpacity(0.7)),
-                                          maxLines: 1,
+                                          maxLines: 2,
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                         trailing: isPlaying
@@ -328,13 +322,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                           color: textColor.withOpacity(0.8),
                                           fontWeight: FontWeight.normal,
                                         ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      subtitle: Text(
-                                        song.artist,
-                                        style: TextStyle(color: textColor.withOpacity(0.4)),
-                                        maxLines: 1,
+                                        maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                       trailing: Icon(Icons.auto_awesome, color: primaryColor.withOpacity(0.5)),
@@ -343,7 +331,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                         await playerService.addToQueue(song);
                                         final newIndex = playerService.playlist.length - 1;
                                         await playerService.seekToTrack(newIndex);
-                                        playerService.populateAutoplayQueue(appProvider.allSongs);
+                                        playerService.populateAutoplayQueue(appProvider.trendingSongs);
                                         if (context.mounted) Navigator.pop(context);
                                       },
                                     ),
@@ -473,22 +461,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                   Expanded(
                                     child: Padding(
                                       padding: const EdgeInsets.all(32.0),
-                                      child: index == playerService.currentIndex
-                                          ? Hero(
-                                              tag: 'cover_${qSong.id}',
-                                              child: AnimatedArtworkCard(
-                                                song: qSong,
-                                                isPlaying: playerService.isPlaying,
-                                                isDark: isDark,
-                                                textColor: textColor,
-                                              ),
-                                            )
-                                          : AnimatedArtworkCard(
-                                              song: qSong,
-                                              isPlaying: playerService.isPlaying,
-                                              isDark: isDark,
-                                              textColor: textColor,
-                                            ),
+                                      child: AnimatedArtworkCard(
+                                        song: qSong,
+                                        isPlaying: playerService.isPlaying,
+                                        isDark: isDark,
+                                        textColor: textColor,
+                                      ),
                                     ),
                                   ),
                                   Padding(
@@ -509,20 +487,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                           ),
                                           selectable: false,
                                         ),
-                                        const SizedBox(height: 8),
-                                        TextScroll(
-                                          qSong.artist,
-                                          mode: TextScrollMode.endless,
-                                          intervalSpaces: 40,
-                                          velocity: const Velocity(pixelsPerSecond: Offset(30, 0)),
-                                          delayBefore: const Duration(seconds: 2),
-                                          pauseBetween: const Duration(seconds: 2),
-                                          style: TextStyle(
-                                            color: textColor.withValues(alpha: 0.7),
-                                            fontSize: 16,
+                                        if (qSong.artist.isNotEmpty) ...[
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            qSong.artist,
+                                            style: TextStyle(
+                                              color: textColor.withOpacity(0.6),
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
                                           ),
-                                          selectable: false,
-                                        ),
+                                        ],
                                       ],
                                     ),
                                   ),
