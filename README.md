@@ -12,12 +12,11 @@ A modern, elegant, and feature-rich music player application built with Flutter.
 
 ### 📱 Android Installation
 
-1. Navigate to the **Releases** section of this repository.
-2. Download the latest `Symphony.apk` file (e.g., Version 1.0.0).
-3. Transfer the APK file to your Android device (if downloaded on a PC).
-4. On your device, open a File Manager and tap the `Symphony.apk` to install.
+1. Download the latest release here: [Symphony v1.0.0.2 APK](https://github.com/P-SivaSekar/Symphony/releases/download/v1.0.0.2/app-release.apk)
+2. Transfer the APK file to your Android device (if downloaded on a PC).
+3. On your device, open a File Manager and tap the `Symphony.apk` to install.
    > **Note:** You may need to enable "Install from Unknown Sources" or "Install unknown apps" in your Android settings.
-5. Launch Symphony and enjoy your music!
+4. Launch Symphony and enjoy your music!
 
 ### 🌐 Web Access
 
