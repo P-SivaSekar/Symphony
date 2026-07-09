@@ -13,6 +13,7 @@ import 'all_playlists_screen.dart';
 import '../models/song_model.dart';
 import '../models/playlist_model.dart';
 import 'profile_screen.dart';
+import '../utils/play_helper.dart';
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback? onNavigateToProfile;
@@ -382,7 +383,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                               title: Text(song.title, maxLines: 1, overflow: TextOverflow.ellipsis),
                               subtitle: Text(song.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
                               onTap: () {
-                                playerService.loadPlaylist(recentlyAdded, initialIndex: index);
+                                playAndOpenPlayer(context, recentlyAdded, index);
                               },
                             ),
                           );
@@ -403,7 +404,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Widget _buildSongCard(Song song, PlayerService playerService, List<Song> queue, int index) {
     return GestureDetector(
-      onTap: () => playerService.loadPlaylist(queue, initialIndex: index),
+      onTap: () => playAndOpenPlayer(context, queue, index),
       child: GlassContainer(
         borderRadius: 16,
         padding: const EdgeInsets.all(8),
@@ -567,7 +568,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Widget _buildGridSongCard(Song song, PlayerService playerService, List<Song> queue, int index) {
     return GestureDetector(
-      onTap: () => playerService.loadPlaylist(queue, initialIndex: index),
+      onTap: () => playAndOpenPlayer(context, queue, index),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: Stack(

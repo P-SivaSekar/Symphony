@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class PlayerService extends ChangeNotifier {
   late AudioPlayer _audioPlayer;
   List<Song> _playlist = [];
+  final Set<String> _resolvedSessionSongIds = {};
   int _currentIndex = 0;
   bool _isPlaying = false;
   Duration _currentPosition = Duration.zero;
@@ -15,6 +16,7 @@ class PlayerService extends ChangeNotifier {
   bool _isInitialized = false;
   final List<String> _playNextOverrideIds = [];
   bool _isConsumingAutoplay = false;
+  Future<Song> Function(Song)? songResolver;
 
   AudioPlayer get audioPlayer => _audioPlayer;
   List<Song> get playlist => _playlist;
@@ -30,6 +32,24 @@ class PlayerService extends ChangeNotifier {
 
   bool get hasNext => _audioPlayer.hasNext || _autoplayEnabled;
   bool get hasPrevious => _audioPlayer.hasPrevious;
+
+  Map<String, String>? _getPlayHeaders(String url) {
+    if (kIsWeb) return null;
+    if (url.contains('saavncdn.com') || url.contains('saavn')) {
+      return const {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://www.jiosaavn.com/',
+      };
+    }
+    return null;
+  }
+
+  String _getPlayableUrl(String url) {
+    if (kIsWeb && (url.contains('saavncdn.com') || url.contains('saavn'))) {
+      return 'https://api.allorigins.win/raw?url=${Uri.encodeComponent(url)}';
+    }
+    return url;
+  }
 
   PlayerService() {
     _initPlayer();
@@ -80,7 +100,8 @@ class PlayerService extends ChangeNotifier {
           final audioSource = ConcatenatingAudioSource(
             children: savedSongs.map((s) {
               return AudioSource.uri(
-                Uri.parse(s.audioUrl),
+                Uri.parse(_getPlayableUrl(s.audioUrl)),
+                headers: _getPlayHeaders(s.audioUrl),
                 tag: MediaItem(
                   id: s.id,
                   album: "Symphony",
@@ -262,13 +283,17 @@ class PlayerService extends ChangeNotifier {
         _savePlayerIndex();
         notifyListeners();
 
-
+        // Dynamically resolve adjacent (next/prev) tracks on track transition
+        _preloadAdjacentSongs(index);
       } else if (index != null &&
           _sessionHistory.isEmpty &&
           index < _playlist.length) {
         // First song loaded
         _sessionHistory.add(_playlist[index]);
         notifyListeners();
+
+        // Preload next track for the first song
+        _preloadAdjacentSongs(index);
       }
     });
 
@@ -288,7 +313,6 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<void> loadPlaylist(List<Song> songs, {int initialIndex = 0}) async {
-    
     while (!_isInitialized) {
       await Future.delayed(const Duration(milliseconds: 100));
     }
@@ -298,27 +322,56 @@ class PlayerService extends ChangeNotifier {
       targetSong = songs[initialIndex];
     }
 
-    final validSongs = songs.where((s) => s.audioUrl.isNotEmpty).toList();
+    // Keep all songs, as JioSaavn tracks might have empty audioUrl initially and will be resolved.
+    final validSongs = songs;
     if (validSongs.isEmpty) return;
-    
-    _playlist = validSongs;
 
     int newIndex = 0;
     if (targetSong != null) {
-      newIndex = validSongs.indexWhere((s) => s.id == targetSong!.id);
+      final targetId = targetSong.id;
+      newIndex = validSongs.indexWhere((s) => s.id == targetId);
       if (newIndex == -1) newIndex = 0;
     }
+
+    // Set player playlist state synchronously first so that the UI updates instantly
+    _playlist = validSongs;
+    _resolvedSessionSongIds.clear();
     _currentIndex = newIndex;
     _sessionHistory.clear(); // Clear history when loading new playlist
+    notifyListeners();
 
     try {
       print(
-        "Loading playlist with ${validSongs.length} songs at index $_currentIndex",
+        "Loading playlist asynchronously with ${validSongs.length} songs at index $_currentIndex",
       );
+
+      // If the target song needs resolution (e.g. has empty or expired JioSaavn audioUrl), resolve it synchronously first
+      if (validSongs.isNotEmpty && _currentIndex < validSongs.length) {
+        final currentSong = validSongs[_currentIndex];
+        final isPermanent = currentSong.audioUrl.isNotEmpty && 
+            (currentSong.audioUrl.startsWith('file://') || currentSong.audioUrl.contains("cloudinary.com"));
+        final needsSyncResolve = !isPermanent;
+
+        if (needsSyncResolve && songResolver != null) {
+          try {
+            print("Target song needs fresh resolution. Resolving synchronously before playback...");
+            final resolved = await songResolver!(currentSong);
+            _resolvedSessionSongIds.add(resolved.id);
+            if (_playlist.length > _currentIndex && _playlist[_currentIndex].id == currentSong.id) {
+              _playlist[_currentIndex] = resolved;
+            }
+          } catch (e) {
+            print("Error resolving initial song synchronously: $e");
+          }
+        }
+      }
+
       final audioSource = ConcatenatingAudioSource(
-        children: validSongs.map((s) {
+        children: _playlist.map((s) {
+          final url = s.audioUrl.isEmpty ? "https://placeholder.com/empty.mp3" : s.audioUrl;
           return AudioSource.uri(
-            Uri.parse(s.audioUrl),
+            Uri.parse(_getPlayableUrl(url)),
+            headers: _getPlayHeaders(url),
             tag: MediaItem(
               id: s.id,
               album: "Symphony",
@@ -332,11 +385,13 @@ class PlayerService extends ChangeNotifier {
           );
         }).toList(),
       );
+
       await _audioPlayer.setAudioSource(
         audioSource,
         initialIndex: _currentIndex,
         initialPosition: Duration.zero,
       );
+
       if (kIsWeb) {
         await _audioPlayer.seek(Duration.zero, index: _currentIndex);
       }
@@ -344,36 +399,185 @@ class PlayerService extends ChangeNotifier {
       _savePlayerState();
       notifyListeners();
       await play();
+
+      // Trigger background resolution of adjacent songs (next and previous tracks)
+      _preloadAdjacentSongs(_currentIndex);
     } catch (e) {
       print("Error loading audio source: $e");
     }
   }
 
+  Future<void> seekToTrack(int index) async {
+    if (index < 0 || index >= _playlist.length) return;
+
+    final song = _playlist[index];
+    if (songResolver != null && 
+        !song.audioUrl.startsWith('file://') && 
+        !song.audioUrl.contains("cloudinary.com")) {
+      try {
+        final resolved = await songResolver!(song);
+        _playlist[index] = resolved;
+        final source = _audioPlayer.audioSource as ConcatenatingAudioSource?;
+        if (source != null && source.length > index) {
+          if (!_resolvedSessionSongIds.contains(resolved.id)) {
+            _resolvedSessionSongIds.add(resolved.id);
+            await source.removeAt(index);
+            await source.insert(
+              index,
+              AudioSource.uri(
+                Uri.parse(_getPlayableUrl(resolved.audioUrl)),
+                headers: _getPlayHeaders(resolved.audioUrl),
+                tag: MediaItem(
+                  id: resolved.id,
+                  album: "Symphony",
+                  title: resolved.title,
+                  artist: resolved.artist,
+                  artUri: (resolved.coverUrl.isNotEmpty && !resolved.coverUrl.startsWith('asset:'))
+                      ? Uri.parse(resolved.coverUrl)
+                      : null,
+                ),
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        print("Error resolving track on seek: $e");
+      }
+    }
+    await _audioPlayer.seek(Duration.zero, index: index);
+  }
+
+  Future<void> _preloadAdjacentSongs(int currentIndex) async {
+    if (songResolver == null) return;
+    
+    final indices = _audioPlayer.effectiveIndices;
+    if (indices == null || indices.isEmpty) return;
+
+    final effectiveIndex = indices.indexOf(currentIndex);
+    if (effectiveIndex == -1) return;
+
+    // 1. Preload the next track in the effective sequence
+    final nextEffective = effectiveIndex + 1;
+    if (nextEffective < indices.length) {
+      final nextIndex = indices[nextEffective];
+      final song = _playlist[nextIndex];
+      if (!song.audioUrl.startsWith('file://') && !song.audioUrl.contains("cloudinary.com")) {
+        try {
+          final resolved = await songResolver!(song);
+          if (_playlist.length > nextIndex && _playlist[nextIndex].id == song.id) {
+            _playlist[nextIndex] = resolved;
+            final source = _audioPlayer.audioSource as ConcatenatingAudioSource?;
+            if (source != null && source.length > nextIndex) {
+              if (!_resolvedSessionSongIds.contains(resolved.id)) {
+                _resolvedSessionSongIds.add(resolved.id);
+                await source.removeAt(nextIndex);
+                if (source.length >= nextIndex) {
+                  await source.insert(
+                    nextIndex,
+                    AudioSource.uri(
+                      Uri.parse(_getPlayableUrl(resolved.audioUrl)),
+                      headers: _getPlayHeaders(resolved.audioUrl),
+                      tag: MediaItem(
+                        id: resolved.id,
+                        album: "Symphony",
+                        title: resolved.title,
+                        artist: resolved.artist,
+                        artUri: (resolved.coverUrl.isNotEmpty && !resolved.coverUrl.startsWith('asset:'))
+                            ? Uri.parse(resolved.coverUrl)
+                            : null,
+                      ),
+                    ),
+                  );
+                }
+              }
+            }
+          }
+        } catch (e) {
+          print("Error preloading next song at $nextIndex: $e");
+        }
+      }
+    }
+
+    // 2. Preload the previous track in the effective sequence
+    final prevEffective = effectiveIndex - 1;
+    if (prevEffective >= 0) {
+      final prevIndex = indices[prevEffective];
+      final song = _playlist[prevIndex];
+      if (!song.audioUrl.startsWith('file://') && !song.audioUrl.contains("cloudinary.com")) {
+        try {
+          final resolved = await songResolver!(song);
+          if (_playlist.length > prevIndex && _playlist[prevIndex].id == song.id) {
+            _playlist[prevIndex] = resolved;
+            final source = _audioPlayer.audioSource as ConcatenatingAudioSource?;
+            if (source != null && source.length > prevIndex) {
+              if (!_resolvedSessionSongIds.contains(resolved.id)) {
+                _resolvedSessionSongIds.add(resolved.id);
+                await source.removeAt(prevIndex);
+                if (source.length >= prevIndex) {
+                  await source.insert(
+                    prevIndex,
+                    AudioSource.uri(
+                      Uri.parse(_getPlayableUrl(resolved.audioUrl)),
+                      headers: _getPlayHeaders(resolved.audioUrl),
+                      tag: MediaItem(
+                        id: resolved.id,
+                        album: "Symphony",
+                        title: resolved.title,
+                        artist: resolved.artist,
+                        artUri: (resolved.coverUrl.isNotEmpty && !resolved.coverUrl.startsWith('asset:'))
+                            ? Uri.parse(resolved.coverUrl)
+                            : null,
+                      ),
+                    ),
+                  );
+                }
+              }
+            }
+          }
+        } catch (e) {
+          print("Error preloading prev song at $prevIndex: $e");
+        }
+      }
+    }
+  }
+
   Future<void> addNext(Song song) async {
-    _playNextOverrideIds.add(song.id);
+    Song resolvedSong = song;
+    if (songResolver != null && 
+        !song.audioUrl.startsWith('file://') && 
+        !song.audioUrl.contains("cloudinary.com")) {
+      try {
+        resolvedSong = await songResolver!(song);
+      } catch (e) {
+        print("Error resolving in addNext: $e");
+      }
+    }
+
+    _playNextOverrideIds.add(resolvedSong.id);
     if (_playlist.isEmpty) {
-      await loadPlaylist([song]);
+      await loadPlaylist([resolvedSong]);
       return;
     }
 
     final insertIndex = _currentIndex + 1;
-    _playlist.insert(insertIndex, song);
+    _playlist.insert(insertIndex, resolvedSong);
 
     final source = _audioPlayer.audioSource as ConcatenatingAudioSource?;
     if (source != null) {
       await source.insert(
         insertIndex,
         AudioSource.uri(
-          Uri.parse(song.audioUrl),
+          Uri.parse(_getPlayableUrl(resolvedSong.audioUrl)),
+          headers: _getPlayHeaders(resolvedSong.audioUrl),
           tag: MediaItem(
-            id: song.id,
+            id: resolvedSong.id,
             album: "Symphony",
-            title: song.title,
-            artist: song.artist,
+            title: resolvedSong.title,
+            artist: resolvedSong.artist,
             artUri:
-                (song.coverUrl.isNotEmpty &&
-                    !song.coverUrl.startsWith('asset:'))
-                ? Uri.parse(song.coverUrl)
+                (resolvedSong.coverUrl.isNotEmpty &&
+                    !resolvedSong.coverUrl.startsWith('asset:'))
+                ? Uri.parse(resolvedSong.coverUrl)
                 : null,
           ),
         ),
@@ -384,27 +588,39 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<void> addToQueue(Song song) async {
+    Song resolvedSong = song;
+    if (songResolver != null && 
+        !song.audioUrl.startsWith('file://') && 
+        !song.audioUrl.contains("cloudinary.com")) {
+      try {
+        resolvedSong = await songResolver!(song);
+      } catch (e) {
+        print("Error resolving in addToQueue: $e");
+      }
+    }
+
     if (_playlist.isEmpty) {
-      await loadPlaylist([song]);
+      await loadPlaylist([resolvedSong]);
       return;
     }
 
-    _playlist.add(song);
+    _playlist.add(resolvedSong);
 
     final source = _audioPlayer.audioSource as ConcatenatingAudioSource?;
     if (source != null) {
       await source.add(
         AudioSource.uri(
-          Uri.parse(song.audioUrl),
+          Uri.parse(_getPlayableUrl(resolvedSong.audioUrl)),
+          headers: _getPlayHeaders(resolvedSong.audioUrl),
           tag: MediaItem(
-            id: song.id,
+            id: resolvedSong.id,
             album: "Symphony",
-            title: song.title,
-            artist: song.artist,
+            title: resolvedSong.title,
+            artist: resolvedSong.artist,
             artUri:
-                (song.coverUrl.isNotEmpty &&
-                    !song.coverUrl.startsWith('asset:'))
-                ? Uri.parse(song.coverUrl)
+                (resolvedSong.coverUrl.isNotEmpty &&
+                    !resolvedSong.coverUrl.startsWith('asset:'))
+                ? Uri.parse(resolvedSong.coverUrl)
                 : null,
           ),
         ),
@@ -444,7 +660,8 @@ class PlayerService extends ChangeNotifier {
 
         final newAudioSources = songsToAdd.map((s) {
           return AudioSource.uri(
-            Uri.parse(s.audioUrl),
+            Uri.parse(_getPlayableUrl(s.audioUrl)),
+            headers: _getPlayHeaders(s.audioUrl),
             tag: MediaItem(
               id: s.id,
               album: "Symphony",
@@ -509,10 +726,13 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<void> skipNext() async {
-    if (_currentIndex == _playlist.length - 1 && _autoplayEnabled && onQueueEmpty != null) {
+    if (!_audioPlayer.hasNext && _autoplayEnabled && onQueueEmpty != null) {
       onQueueEmpty!(forcePlay: true);
     } else if (_audioPlayer.hasNext) {
-      await _audioPlayer.seekToNext();
+      final nextIdx = _audioPlayer.nextIndex;
+      if (nextIdx != null) {
+        await seekToTrack(nextIdx);
+      }
       await play();
     } else {
       if (_loopMode == LoopMode.all) {
@@ -527,7 +747,10 @@ class PlayerService extends ChangeNotifier {
 
   Future<void> skipPrevious() async {
     if (_audioPlayer.hasPrevious) {
-      await _audioPlayer.seekToPrevious();
+      final prevIdx = _audioPlayer.previousIndex;
+      if (prevIdx != null) {
+        await seekToTrack(prevIdx);
+      }
     } else {
       await seek(Duration.zero);
     }

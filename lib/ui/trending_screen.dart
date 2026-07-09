@@ -4,6 +4,7 @@ import '../providers/app_provider.dart';
 import '../services/player_service.dart';
 import 'player_screen.dart';
 import 'glassmorphic_component.dart';
+import '../utils/play_helper.dart';
 
 class TrendingScreen extends StatelessWidget {
   const TrendingScreen({super.key});
@@ -45,10 +46,7 @@ class TrendingScreen extends StatelessWidget {
                 final song = appProvider.trendingSongs[index];
                 return GestureDetector(
                   onTap: () {
-                    playerService.loadPlaylist(
-                      appProvider.trendingSongs,
-                      initialIndex: index,
-                    );
+                    playAndOpenPlayer(context, appProvider.trendingSongs, index);
                   },
                   child: Container(
                     margin: const EdgeInsets.only(bottom: 12),

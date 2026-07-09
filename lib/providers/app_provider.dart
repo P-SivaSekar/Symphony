@@ -928,35 +928,30 @@ class AppProvider extends ChangeNotifier {
 
       final cacheKey = 'saavn_cover_${song.id}';
       final cachedUrl = prefs.getString(cacheKey);
-      
-      final audioCacheKey = 'saavn_audio_${song.id}';
-      final cachedAudioUrl = prefs.getString(audioCacheKey);
 
-      // Fast Path: Check if both cached cover and audio are available locally
-      if (cachedUrl != null && cachedUrl.isNotEmpty && 
-          cachedAudioUrl != null && cachedAudioUrl.isNotEmpty) {
-        _allSongs[i] = song.copyWith(coverUrl: cachedUrl, audioUrl: cachedAudioUrl);
+      // Fast Path: Check if cached cover is available locally
+      if (cachedUrl != null && cachedUrl.isNotEmpty) {
+        _allSongs[i] = song.copyWith(coverUrl: cachedUrl);
         updated = true;
 
-        // Check if we need to sync this to Firestore (if Firestore has Cloudinary/empty values)
-        if (!song.coverUrl.startsWith('https://c.saavncdn.com') || song.audioUrl.contains("cloudinary.com")) {
+        // Check if we need to sync this to Firestore
+        if (!song.coverUrl.startsWith('https://c.saavncdn.com')) {
           try {
             final user = FirebaseAuth.instance.currentUser;
             if (user != null) {
               await FirebaseFirestore.instance.collection('songs').doc(song.id).update({
                 'coverUrl': cachedUrl,
-                'audioUrl': cachedAudioUrl,
               });
-              print("Synced cached cover & audio for '${song.title}' to Firestore.");
+              print("Synced cached cover for '${song.title}' to Firestore.");
             }
           } catch (e) {
-            print("Failed to sync cached cover/audio to Firestore: $e");
+            print("Failed to sync cached cover to Firestore: $e");
           }
         }
         continue;
       }
 
-      // If either cover or audio is missing/needs resolution, fetch them
+      // If cover is missing, fetch it
       try {
         String searchTerm = song.title;
         if (song.artist.isNotEmpty && 
@@ -975,7 +970,6 @@ class AppProvider extends ChangeNotifier {
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
           String? cover = cachedUrl;
-          String? audio = cachedAudioUrl;
           
           if (data['status'] == true && data['results'] != null && data['results'].isNotEmpty) {
             final results = List<dynamic>.from(data['results']);
@@ -1079,8 +1073,6 @@ class AppProvider extends ChangeNotifier {
             // Fallback to first result if absolutely no Tamil result found
             bestResult ??= Map<String, dynamic>.from(results[0]);
 
-            final saavnId = bestResult['id'];
-
             // Get cover if not already cached
             if (cover == null || cover.isEmpty) {
               if (bestResult['images'] != null && bestResult['images']['500x500'] != null) {
@@ -1090,24 +1082,6 @@ class AppProvider extends ChangeNotifier {
               }
               if (cover != null) {
                 cover = cover.replaceAll('50x50', '500x500').replaceAll('150x150', '500x500');
-              }
-            }
-
-            // Get audio if not already cached
-            if (audio == null || audio.isEmpty || song.audioUrl.contains("cloudinary.com") || song.audioUrl.isEmpty) {
-              final songDetailResponse = await http.get(Uri.parse(
-                'https://jiosaavn-api.vercel.app/song?id=$saavnId'
-              ));
-              if (songDetailResponse.statusCode == 200) {
-                final detailData = jsonDecode(songDetailResponse.body);
-                if (detailData['status'] == true) {
-                  final urls = detailData['media_urls'];
-                  if (urls != null) {
-                    audio = urls['320_KBPS'] ?? urls['160_KBPS'] ?? detailData['media_url'];
-                  } else {
-                    audio = detailData['media_url'];
-                  }
-                }
               }
             }
           }
@@ -1122,20 +1096,13 @@ class AppProvider extends ChangeNotifier {
             shouldUpdate = true;
           }
 
-          if (audio != null && audio.isNotEmpty && audio != song.audioUrl) {
-            _allSongs[i] = _allSongs[i].copyWith(audioUrl: audio);
-            await prefs.setString(audioCacheKey, audio);
-            updateData['audioUrl'] = audio;
-            shouldUpdate = true;
-          }
-
           if (shouldUpdate) {
             updated = true;
             try {
               final user = FirebaseAuth.instance.currentUser;
               if (user != null && updateData.isNotEmpty) {
                 await FirebaseFirestore.instance.collection('songs').doc(song.id).update(updateData);
-                print("Synched cover/audio for '${song.title}' to Firestore.");
+                print("Synched cover for '${song.title}' to Firestore.");
               }
             } catch (fsError) {
               print("Firestore sync error for '${song.title}': $fsError");
@@ -1143,7 +1110,7 @@ class AppProvider extends ChangeNotifier {
           }
         }
       } catch (e) {
-        print("Error resolving cover/audio for ${song.title}: $e");
+        print("Error resolving cover for ${song.title}: $e");
       }
     }
 
@@ -1151,6 +1118,119 @@ class AppProvider extends ChangeNotifier {
       _trendingSongs = _allSongs.where((song) => song.isTrending).toList();
       notifyListeners();
     }
+  }
+
+  Future<String?> _fetchJioSaavnAudioUrl(String saavnId) async {
+    try {
+      final detailsUrl = 'https://www.jiosaavn.com/api.php?__call=song.getDetails&pids=$saavnId&_format=json&_marker=0&api_version=4&ctx=web6dot0';
+      final detailsResponse = await http.get(
+        Uri.parse(detailsUrl),
+        headers: const {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': 'https://www.jiosaavn.com/',
+        },
+      );
+      if (detailsResponse.statusCode == 200) {
+        final detailsData = jsonDecode(detailsResponse.body);
+        if (detailsData != null && detailsData['songs'] != null && (detailsData['songs'] as List).isNotEmpty) {
+          final songObj = detailsData['songs'][0];
+          final moreInfo = songObj['more_info'];
+          if (moreInfo != null) {
+            final encUrl = moreInfo['encrypted_media_url'] as String?;
+            if (encUrl != null && encUrl.isNotEmpty) {
+              final encodedUrl = Uri.encodeComponent(encUrl);
+              final tokenUrl = 'https://www.jiosaavn.com/api.php?__call=song.generateAuthToken&url=$encodedUrl&bitrate=320&api_version=4&_format=json&ctx=web6dot0&_marker=0';
+              final tokenResponse = await http.get(
+                Uri.parse(tokenUrl),
+                headers: const {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                  'Referer': 'https://www.jiosaavn.com/',
+                },
+              );
+              if (tokenResponse.statusCode == 200) {
+                final tokenData = jsonDecode(tokenResponse.body);
+                if (tokenData != null && tokenData['status'] == 'success') {
+                  return tokenData['auth_url'] as String?;
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print("Error fetching JioSaavn audio URL for $saavnId: $e");
+    }
+    return null;
+  }
+
+  Future<Song> resolveSongNow(Song song) async {
+    // If it's a local file or a Cloudinary link, it's permanent and we don't need to resolve.
+    if (song.audioUrl.isNotEmpty && 
+        (song.audioUrl.startsWith('file://') || song.audioUrl.contains("cloudinary.com"))) {
+      return song;
+    }
+
+    try {
+      String searchTerm = song.title;
+      if (song.artist.isNotEmpty && 
+          song.artist.toLowerCase() != 'unknown' && 
+          !song.artist.toLowerCase().contains('unknown') && 
+          !song.artist.toLowerCase().contains('various')) {
+        searchTerm += ' ${song.artist}';
+      } else {
+        searchTerm += ' Tamil';
+      }
+      final query = Uri.encodeComponent(searchTerm);
+      final response = await http.get(Uri.parse(
+        'https://jiosaavn-api.vercel.app/search?query=$query'
+      ));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['status'] == true && data['results'] != null && (data['results'] as List).isNotEmpty) {
+          final results = List<dynamic>.from(data['results']);
+          Map<String, dynamic>? bestResult;
+          for (var res in results) {
+            final moreInfo = res['more_info'];
+            final album = (res['album'] ?? '').toString().toLowerCase();
+            if ((moreInfo != null && (moreInfo['language'] == 'Tamil' || moreInfo['language'] == 'tamil')) || album.contains('tamil')) {
+              bestResult = Map<String, dynamic>.from(res);
+              break;
+            }
+          }
+          bestResult ??= Map<String, dynamic>.from(results[0]);
+
+          final saavnId = bestResult['id'];
+          
+          String cover = song.coverUrl;
+          if (cover.isEmpty || cover.contains('50x50')) {
+            if (bestResult['images'] != null && bestResult['images']['500x500'] != null) {
+              cover = bestResult['images']['500x500'] as String;
+            } else {
+              cover = bestResult['image'] as String? ?? cover;
+            }
+            cover = cover.replaceAll('50x50', '500x500').replaceAll('150x150', '500x500');
+          }
+
+          // Fetch fresh signed URL from official JioSaavn API using saavnId
+          final freshAudioUrl = await _fetchJioSaavnAudioUrl(saavnId);
+          final audio = freshAudioUrl ?? song.audioUrl;
+
+          final resolvedSong = song.copyWith(coverUrl: cover, audioUrl: audio);
+          
+          // Update in memory so we don't have to resolve again in this session
+          final index = _allSongs.indexWhere((s) => s.id == song.id);
+          if (index != -1) {
+            _allSongs[index] = resolvedSong;
+          }
+
+          return resolvedSong;
+        }
+      }
+    } catch (e) {
+      print("Error resolving song now: $e");
+    }
+    return song;
   }
 
   Future<void> toggleFavorite(Song song) async {
@@ -1290,27 +1370,53 @@ class AppProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final File file = File('${dir.path}/${song.id}.mp3');
+      final resolvedSong = await resolveSongNow(song);
 
-      String urlStr = song.audioUrl;
+      final dir = await getApplicationDocumentsDirectory();
+      final File audioFile = File('${dir.path}/${resolvedSong.id}.mp3');
+      final File coverFile = File('${dir.path}/${resolvedSong.id}_cover.jpg');
+
+      String urlStr = resolvedSong.audioUrl;
       if (urlStr.startsWith('http://')) {
         urlStr = urlStr.replaceFirst('http://', 'https://');
       }
 
       final request = http.Request('GET', Uri.parse(urlStr));
+      request.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+      request.headers['Referer'] = 'https://www.jiosaavn.com/';
       final streamedResponse = await http.Client().send(request);
       
       if (streamedResponse.statusCode == 200 || streamedResponse.statusCode == 206) {
-        final sink = file.openWrite();
+        final sink = audioFile.openWrite();
         await streamedResponse.stream.pipe(sink);
         await sink.close();
 
-        final downloadedSong = song.copyWith(audioUrl: 'file://${file.path}');
+        // Download cover image
+        if (resolvedSong.coverUrl.isNotEmpty && !resolvedSong.coverUrl.startsWith('asset:')) {
+           try {
+             final coverResponse = await http.get(
+               Uri.parse(resolvedSong.coverUrl),
+               headers: const {
+                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                 'Referer': 'https://www.jiosaavn.com/',
+               },
+             );
+             if (coverResponse.statusCode == 200) {
+               await coverFile.writeAsBytes(coverResponse.bodyBytes);
+             }
+           } catch(e) {
+             print("Error downloading cover for ${resolvedSong.title}: $e");
+           }
+        }
+
+        final downloadedSong = resolvedSong.copyWith(
+          audioUrl: 'file://${audioFile.path}',
+          coverUrl: await coverFile.exists() ? 'file://${coverFile.path}' : resolvedSong.coverUrl,
+        );
 
         _downloadedSongs.insert(0, downloadedSong);
         await _saveDownloadedSongs();
-        print("Download complete for ${song.title}");
+        print("Download complete for ${resolvedSong.title}");
       } else {
         print("Download failed with status: ${streamedResponse.statusCode}");
       }

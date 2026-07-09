@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../utils/play_helper.dart';
 import 'global_background.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
@@ -353,10 +355,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                             child: ElevatedButton.icon(
                               onPressed: () {
                                 playerService.setShuffle(false);
-                                playerService.loadPlaylist(
-                                  displaySongs,
-                                  initialIndex: 0,
-                                );
+                                playAndOpenPlayer(context, displaySongs, 0);
                               },
                               icon: Icon(
                                 Icons.play_arrow,
@@ -387,10 +386,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                                 final initialIndex = displaySongs.length > 1
                                     ? math.Random().nextInt(displaySongs.length)
                                     : 0;
-                                playerService.loadPlaylist(
-                                  displaySongs,
-                                  initialIndex: initialIndex,
-                                );
+                                playAndOpenPlayer(context, displaySongs, initialIndex);
                               },
                               icon: Icon(Icons.shuffle, color: textColor),
                               label: Text(
@@ -629,10 +625,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                                             }
                                           });
                                         } else {
-                                          playerService.loadPlaylist(
-                                            displaySongs,
-                                            initialIndex: index,
-                                          );
+                                          playAndOpenPlayer(context, displaySongs, index);
                                         }
                                       },
                                       onLongPress: () {

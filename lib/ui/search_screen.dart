@@ -8,6 +8,7 @@ import 'glassmorphic_component.dart';
 import 'download_button.dart';
 import '../utils/song_options_bottom_sheet.dart';
 import '../utils/ui_utils.dart';
+import '../utils/play_helper.dart';
 
 class SearchScreen extends StatefulWidget {
   final bool isActive;
@@ -345,25 +346,23 @@ class _SearchScreenState extends State<SearchScreen> {
                                   _isMultiSelectMode = false;
                                 }
                               });
-                            } else {
-                              if (_isSearching) {
-                                final allSongs = appProvider.allSongs;
-                                final initialIndex = allSongs.indexWhere(
-                                  (s) => s.id == song.id,
-                                );
-                                playerService.loadPlaylist(
-                                  allSongs,
-                                  initialIndex: initialIndex != -1
-                                      ? initialIndex
-                                      : 0,
-                                );
-                              } else {
-                                playerService.loadPlaylist(
-                                  displaySongs,
-                                  initialIndex: index,
-                                );
-                              }
-                            }
+                            } else if (_isSearching) {
+                                  final allSongs = appProvider.allSongs;
+                                  final initialIndex = allSongs.indexWhere(
+                                    (s) => s.id == song.id,
+                                  );
+                                  playAndOpenPlayer(
+                                    context,
+                                    allSongs,
+                                    initialIndex != -1 ? initialIndex : 0,
+                                  );
+                                } else {
+                                  playAndOpenPlayer(
+                                    context,
+                                    displaySongs,
+                                    index,
+                                  );
+                                }
                           },
                           onLongPress: () {
                             if (!_isMultiSelectMode) {

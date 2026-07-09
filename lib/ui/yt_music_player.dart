@@ -156,7 +156,7 @@ class _MiniPlayerContent extends StatelessWidget {
                 children: [
                   const SizedBox(width: 24),
                   Hero(
-                    tag: 'cover_${song.id}',
+                    tag: 'cover_mini_${song.id}',
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(4.0),
                       child: SizedBox(
@@ -265,7 +265,7 @@ class _MiniPlayerContent extends StatelessWidget {
         children: [
           const SizedBox(width: 16),
           Hero(
-            tag: 'cover_${song.id}',
+            tag: 'cover_mini_${song.id}',
             child: ClipRRect(
               borderRadius: BorderRadius.circular(4.0),
               child: SizedBox(
@@ -514,11 +514,11 @@ class _MiniPlayerContent extends StatelessWidget {
                                                 icon: Icon(Icons.more_vert, color: textColor.withOpacity(0.7)),
                                                 onPressed: () => showSongOptionsBottomSheet(context, song, isQueueContext: true, queueIndex: index),
                                               ),
-                                        onTap: () {
+                                        onTap: () async {
                                           final indices = playerService.audioPlayer.effectiveIndices;
                                           final originalIndex = (indices != null && indices.length > index) ? indices[index] : index;
-                                          playerService.audioPlayer.seek(Duration.zero, index: originalIndex);
-                                          Navigator.pop(context);
+                                          await playerService.seekToTrack(originalIndex);
+                                          if (context.mounted) Navigator.pop(context);
                                         },
                                       ),
                                     ),
@@ -582,8 +582,8 @@ class _MiniPlayerContent extends StatelessWidget {
                                       onTap: () async {
                                         playerService.autoplayQueue.removeAt(autoplayIndex);
                                         await playerService.addToQueue(song);
-                                        final newIndex = playerService.fullEffectivePlaylist.length - 1;
-                                        playerService.audioPlayer.seek(Duration.zero, index: newIndex);
+                                        final newIndex = playerService.playlist.length - 1;
+                                        await playerService.seekToTrack(newIndex);
                                         playerService.populateAutoplayQueue(appProvider.allSongs);
                                         if (context.mounted) Navigator.pop(context);
                                       },

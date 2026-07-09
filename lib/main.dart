@@ -308,6 +308,7 @@ class _AuthenticationWrapperState extends State<AuthenticationWrapper> {
   Widget build(BuildContext context) {
     final playerService = Provider.of<PlayerService>(context, listen: false);
     final appProviderNonListening = Provider.of<AppProvider>(context, listen: false);
+    playerService.songResolver ??= appProviderNonListening.resolveSongNow;
     playerService.onQueueEmpty ??= ({bool forcePlay = false}) {
       playerService.consumeAutoplay(appProviderNonListening.allSongs, forcePlay: forcePlay);
     };

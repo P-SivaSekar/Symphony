@@ -5,6 +5,7 @@ import '../models/notification_model.dart';
 import '../services/player_service.dart';
 import 'package:intl/intl.dart';
 import 'yt_music_player.dart';
+import '../utils/play_helper.dart';
 
 class NotificationScreen extends StatelessWidget {
   const NotificationScreen({super.key});
@@ -102,12 +103,8 @@ class NotificationScreen extends StatelessWidget {
                               (s) => s.id == notification.songId,
                             );
                             if (song.isNotEmpty) {
-                              final playerService = Provider.of<PlayerService>(
-                                  context,
-                                  listen: false);
-                              playerService.loadPlaylist(
-                                  [song.first], initialIndex: 0);
-                              playerService.play();
+                              playAndOpenPlayer(
+                                  context, [song.first], 0);
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: Text(

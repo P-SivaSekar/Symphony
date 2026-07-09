@@ -6,8 +6,6 @@ import '../providers/app_provider.dart';
 import 'glassmorphic_component.dart';
 import '../utils/song_options_bottom_sheet.dart';
 import 'package:text_scroll/text_scroll.dart';
-import 'synced_lyrics_view.dart';
-
 class PlayerScreen extends StatefulWidget {
   final bool hideCover;
   const PlayerScreen({super.key, this.hideCover = false});
@@ -19,7 +17,6 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen> {
   late PageController _pageController;
   bool _isProgrammaticScroll = false;
-  bool _showLyrics = false;
   double? _dragValue;
   bool? _lastShuffleMode;
   
@@ -28,7 +25,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     super.initState();
     final playerService = Provider.of<PlayerService>(context, listen: false);
     _pageController = PageController(
-      initialPage: playerService.currentEffectiveIndex,
+      initialPage: playerService.currentIndex,
     );
     _lastShuffleMode = playerService.isShuffleModeEnabled;
   }
@@ -39,7 +36,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final playerService = Provider.of<PlayerService>(context, listen: false);
     if (_pageController.hasClients) {
       final currentPage = _pageController.page?.round() ?? 0;
-      final targetPage = playerService.currentEffectiveIndex;
+      final targetPage = playerService.currentIndex;
       if (currentPage != targetPage) {
         _isProgrammaticScroll = true;
         final pageDiff = (currentPage - targetPage).abs();
@@ -276,11 +273,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                                 icon: Icon(Icons.more_vert, color: textColor.withOpacity(0.7)),
                                                 onPressed: () => showSongOptionsBottomSheet(context, song, isQueueContext: true, queueIndex: index),
                                               ),
-                                        onTap: () {
+                                        onTap: () async {
                                           final indices = playerService.audioPlayer.effectiveIndices;
                                           final originalIndex = (indices != null && indices.length > index) ? indices[index] : index;
-                                          playerService.audioPlayer.seek(Duration.zero, index: originalIndex);
-                                          Navigator.pop(context);
+                                          await playerService.seekToTrack(originalIndex);
+                                          if (context.mounted) Navigator.pop(context);
                                         },
                                       ),
                                     ),
@@ -344,8 +341,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                       onTap: () async {
                                         playerService.autoplayQueue.removeAt(autoplayIndex);
                                         await playerService.addToQueue(song);
-                                        final newIndex = playerService.fullEffectivePlaylist.length - 1;
-                                        playerService.audioPlayer.seek(Duration.zero, index: newIndex);
+                                        final newIndex = playerService.playlist.length - 1;
+                                        await playerService.seekToTrack(newIndex);
                                         playerService.populateAutoplayQueue(appProvider.allSongs);
                                         if (context.mounted) Navigator.pop(context);
                                       },
@@ -371,7 +368,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   Widget build(BuildContext context) {
     final playerService = Provider.of<PlayerService>(context);
-    final fullPlaylist = playerService.fullEffectivePlaylist;
+    final fullPlaylist = playerService.playlist;
 
     final appProvider = Provider.of<AppProvider>(context);
     final theme = Theme.of(context);
@@ -389,7 +386,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_pageController.hasClients && !_isProgrammaticScroll) {
         final currentPage = _pageController.page?.round() ?? 0;
-        final targetPage = playerService.currentEffectiveIndex;
+        final targetPage = playerService.currentIndex;
         if (currentPage != targetPage) {
           _isProgrammaticScroll = true;
           final pageDiff = (currentPage - targetPage).abs();
@@ -457,21 +454,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ],
                     ),
                   ),
-                  // Cover Art Pager or Synced Lyrics
+                  // Cover Art Pager
                   Expanded(
-                    child: _showLyrics
-                        ? SyncedLyricsView(song: song)
-                        : PageView.builder(
+                    child: PageView.builder(
                             controller: _pageController,
                             onPageChanged: (index) {
                               if (_isProgrammaticScroll) return;
-                              if (index != playerService.currentEffectiveIndex) {
-                                final indices = playerService.audioPlayer.effectiveIndices;
-                                final actualIndex = indices.isNotEmpty ? indices[index] : index;
-                                playerService.audioPlayer.seek(
-                                  Duration.zero,
-                                  index: actualIndex,
-                                );
+                              if (index != playerService.currentIndex) {
+                                playerService.seekToTrack(index);
                               }
                             },
                             itemCount: fullPlaylist.length,
@@ -483,15 +473,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                   Expanded(
                                     child: Padding(
                                       padding: const EdgeInsets.all(32.0),
-                                      child: Hero(
-                                        tag: 'cover_${qSong.id}',
-                                        child: AnimatedArtworkCard(
-                                          song: qSong,
-                                          isPlaying: playerService.isPlaying,
-                                          isDark: isDark,
-                                          textColor: textColor,
-                                        ),
-                                      ),
+                                      child: index == playerService.currentIndex
+                                          ? Hero(
+                                              tag: 'cover_${qSong.id}',
+                                              child: AnimatedArtworkCard(
+                                                song: qSong,
+                                                isPlaying: playerService.isPlaying,
+                                                isDark: isDark,
+                                                textColor: textColor,
+                                              ),
+                                            )
+                                          : AnimatedArtworkCard(
+                                              song: qSong,
+                                              isPlaying: playerService.isPlaying,
+                                              isDark: isDark,
+                                              textColor: textColor,
+                                            ),
                                     ),
                                   ),
                                   Padding(
@@ -644,24 +641,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ],
                     ),
                   ),
-                  // Bottom Row (Lyrics & Queue)
+                  // Bottom Row (Queue Only)
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 8.0),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        IconButton(
-                          icon: Icon(
-                            _showLyrics ? Icons.lyrics : Icons.lyrics_outlined,
-                            color: _showLyrics ? primaryColor : textColor.withOpacity(0.54),
-                            size: 28,
-                          ),
-                          onPressed: () {
-                            setState(() {
-                              _showLyrics = !_showLyrics;
-                            });
-                          },
-                        ),
                         IconButton(
                           icon: Icon(
                             Icons.queue_music,
