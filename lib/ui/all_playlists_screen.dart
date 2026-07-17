@@ -261,12 +261,12 @@ class _AllPlaylistsScreenState extends State<AllPlaylistsScreen> {
             bottom: false,
             child: GridView.builder(
               physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.only(left: 24, right: 24, top: 24, bottom: 24 + 64),
+              padding: const EdgeInsets.only(left: 12, right: 12, top: 16, bottom: 16 + 64),
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
-                mainAxisSpacing: 16,
-                crossAxisSpacing: 16,
-                childAspectRatio: widget.isExplore ? 1.0 : 0.85,
+                mainAxisSpacing: 12,
+                crossAxisSpacing: 12,
+                childAspectRatio: widget.isExplore ? 0.9 : 0.85,
               ),
               itemCount: displayPlaylists.length,
               itemBuilder: (context, index) {

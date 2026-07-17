@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/saavn_service.dart';
 import 'package:provider/provider.dart';
@@ -414,6 +415,22 @@ class _SearchScreenState extends State<SearchScreen> {
                                               width: 55,
                                               height: 55,
                                               fit: BoxFit.cover,
+                                            )
+                                          : song.coverUrl.startsWith('file://')
+                                          ? Image.file(
+                                              File(song.coverUrl.replaceFirst('file://', '')),
+                                              width: 55,
+                                              height: 55,
+                                              fit: BoxFit.cover,
+                                              errorBuilder: (_, __, ___) => Container(
+                                                color: isDark ? Colors.white10 : Colors.black12,
+                                                width: 55,
+                                                height: 55,
+                                                child: Icon(
+                                                  Icons.music_note,
+                                                  color: isDark ? Colors.white24 : Colors.black26,
+                                                ),
+                                              ),
                                             )
                                           : Image.network(
                                               song.coverUrl,

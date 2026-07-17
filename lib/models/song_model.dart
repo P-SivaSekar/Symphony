@@ -5,6 +5,7 @@ class Song {
   final String coverUrl;
   final String audioUrl;
   final bool isTrending;
+  final bool isAutoplay;
 
   Song({
     required this.id,
@@ -13,6 +14,7 @@ class Song {
     required this.coverUrl,
     required this.audioUrl,
     this.isTrending = false,
+    this.isAutoplay = false,
   });
 
   factory Song.fromMap(Map<String, dynamic> data, String documentId) {
@@ -23,6 +25,7 @@ class Song {
       coverUrl: (data['coverUrl'] as String?)?.trim() ?? '',
       audioUrl: (data['audioUrl'] as String?)?.trim() ?? '',
       isTrending: data['isTrending'] ?? false,
+      isAutoplay: data['isAutoplay'] ?? false,
     );
   }
 
@@ -33,6 +36,7 @@ class Song {
       'coverUrl': coverUrl,
       'audioUrl': audioUrl,
       'isTrending': isTrending,
+      'isAutoplay': isAutoplay,
     };
   }
 
@@ -43,6 +47,7 @@ class Song {
     String? coverUrl,
     String? audioUrl,
     bool? isTrending,
+    bool? isAutoplay,
   }) {
     return Song(
       id: id ?? this.id,
@@ -51,6 +56,7 @@ class Song {
       coverUrl: coverUrl ?? this.coverUrl,
       audioUrl: audioUrl ?? this.audioUrl,
       isTrending: isTrending ?? this.isTrending,
+      isAutoplay: isAutoplay ?? this.isAutoplay,
     );
   }
 }

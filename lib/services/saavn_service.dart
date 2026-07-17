@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import '../models/song_model.dart';
 import '../models/playlist_model.dart';
@@ -51,7 +52,7 @@ class SaavnService {
         if (data['new_trending'] != null) {
           for (var item in data['new_trending']) {
             if (item['language'] != null && item['language'].toString().toLowerCase() == 'tamil') {
-              if (item['type'] == 'song') {
+              if (item['type'] == 'song' && _isOfficialVersion(item)) {
                 trending.add(_parseSongFromJson(item));
               }
             }
@@ -83,33 +84,40 @@ class SaavnService {
         }
 
         playlists.add(Playlist(
-          id: 'search:ilayaraja tamil hits',
+          id: 'search:Ilayaraja',
           name: 'Ilayaraja Hits',
           description: 'Best of Maestro Ilayaraja',
           coverUrl: 'https://c.saavncdn.com/artists/Ilayaraja_005_20230825081033_500x500.jpg',
           songs: [],
         ));
         playlists.add(Playlist(
-          id: 'search:harris jayaraj tamil hits',
+          id: 'search:Harris Jayaraj',
           name: 'Harris Jayaraj Hits',
           description: 'Magical melodies of Harris',
           coverUrl: 'https://c.saavncdn.com/artists/Harris_Jayaraj_004_20230825081438_500x500.jpg',
           songs: [],
         ));
         playlists.add(Playlist(
-          id: 'search:ar rahman tamil hits',
+          id: 'search:A.R. Rahman',
           name: 'A.R. Rahman Hits',
           description: 'Musical genius ARR',
           coverUrl: 'https://c.saavncdn.com/artists/A_R_Rahman_002_20230825080838_500x500.jpg',
           songs: [],
         ));
         playlists.add(Playlist(
-          id: 'search:anirudh tamil hits',
+          id: 'search:Anirudh',
           name: 'Anirudh Hits',
           description: 'Rockstar Anirudh Ravichander',
           coverUrl: 'https://c.saavncdn.com/artists/Anirudh_Ravichander_005_20230825081156_500x500.jpg',
           songs: [],
-        ));        
+        ));
+        playlists.add(Playlist(
+          id: 'search:sai abhyankar',
+          name: 'Sai Abhyankar',
+          description: 'Hits of Sai Abhyankar',
+          coverUrl: 'https://c.saavncdn.com/artists/Sai_Abhyankar_004_20240416110940_500x500.jpg',
+          songs: [],
+        ));
         // Ensure we have enough trending songs by fetching top tamil songs (random page for freshness)
         if (trending.length < 15) {
           final randomPage = (DateTime.now().millisecondsSinceEpoch % 10) + 1; // Random page 1-10
@@ -130,6 +138,17 @@ class SaavnService {
       print('Error fetching Saavn home data: $e');
     }
     return {'trending': [], 'playlists': []};
+  }
+
+
+
+  static Future<List<Song>> fetchNewReleases() async {
+    List<Song> songs = [];
+    songs.addAll(await searchTamilSongs('OM The Wild Theme'));
+    songs.addAll(await searchTamilSongs('Raga of revenge'));
+    songs.addAll(await searchTamilSongs('Tamil BGM'));
+    songs.addAll(await searchTamilSongs('New Tamil'));
+    return _filterUniqueSongs(songs);
   }
 
   static Future<List<Song>> searchTamilSongs(String query, {int page = 1}) async {
@@ -154,9 +173,73 @@ class SaavnService {
     return [];
   }
 
+  /// Searches for songs from a list of movies and filters by music director name from raw JSON.
+  static Future<List<Song>> _searchSongsForComposer(List<String> movies, bool Function(String musicField) composerCheck) async {
+    final futures = movies.map((m) => _fetchRawSongsByQuery(m));
+    final rawResults = await Future.wait(futures);
+    List<Song> songs = [];
+    for (final items in rawResults) {
+      for (final item in items) {
+        final music = (item['music'] ?? item['primary_artists'] ?? '').toString();
+        if (composerCheck(music.toLowerCase())) {
+          songs.add(_parseSongFromJson(item));
+        }
+      }
+    }
+    return _filterUniqueSongs(songs)..shuffle();
+  }
+
+  /// Fetches raw JSON results for a search query filtered to official Tamil songs only.
+  static Future<List<Map<String, dynamic>>> _fetchRawSongsByQuery(String query) async {
+    try {
+      final url = Uri.parse('$baseUrl?__call=search.getResults&q=${Uri.encodeComponent(query)}&n=50&p=1&_format=json&_marker=0&ctx=web6dot0');
+      final response = await http.get(url, headers: headers);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        List<Map<String, dynamic>> results = [];
+        if (data['results'] != null) {
+          for (var item in data['results']) {
+            if (item['language'] != null &&
+                item['language'].toString().toLowerCase() == 'tamil' &&
+                _isOfficialVersion(item)) {
+              results.add(Map<String, dynamic>.from(item));
+            }
+          }
+        }
+        return results;
+      }
+    } catch (e) {
+      print('Error fetching raw songs for $query: $e');
+    }
+    return [];
+  }
+
   static Future<List<Song>> fetchPlaylistSongs(String playlistId) async {
     if (playlistId.startsWith('search:')) {
       final query = playlistId.substring(7);
+      
+      if (query == 'Ilayaraja') {
+        return await _searchSongsForComposer(
+          ['Mouna Ragam', 'Nayagan', 'Thalapathi', 'Punnagai Mannan', 'Sindhu Bhairavi', 'Agni Natchathiram', 'Kadalora Kavithaigal', 'Ninaithale Inikkum'],
+          (m) => m.contains('ilaiyaraaja') || m.contains('ilayaraaja') || m.contains('ilaiyaraja'),
+        );
+      } else if (query == 'A.R. Rahman') {
+        return await _searchSongsForComposer(
+          ['Roja', 'Bombay', 'Minsara Kanavu', 'Alaipayuthey', 'Jeans', 'Sivaji', 'Enthiran', 'Kadal'],
+          (m) => m.contains('rahman'),
+        );
+      } else if (query == 'Harris Jayaraj') {
+        return await _searchSongsForComposer(
+          ['Minnale', 'Kaakha Kaakha', 'Anniyan', 'Ghajini', 'Vaaranam Aayiram', 'Ayan', 'Ko', 'Thuppakki'],
+          (m) => m.contains('harris'),
+        );
+      } else if (query == 'Anirudh') {
+        return await _searchSongsForComposer(
+          ['3 (Original Motion Picture Soundtrack)', 'Kaththi', 'Vedalam', 'Master', 'Vikram', 'Jailer', 'Leo', 'Petta'],
+          (m) => m.contains('anirudh'),
+        );
+      }
+      
       return await searchTamilSongs(query, page: 1);
     }
     try {
@@ -169,7 +252,9 @@ class SaavnService {
         if (listData != null) {
           for (var item in listData) {
             if (item['language'] != null && item['language'].toString().toLowerCase() == 'tamil') {
-              songs.add(_parseSongFromJson(item));
+              if (_isOfficialVersion(item, strictMode: false)) {
+                songs.add(_parseSongFromJson(item));
+              }
             }
           }
         }
@@ -213,15 +298,32 @@ class SaavnService {
     return null;
   }
 
-  static bool _isOfficialVersion(Map<String, dynamic> item) {
+  static bool _isOfficialVersion(Map<String, dynamic> item, {bool strictMode = true}) {
     final title = (item['song'] ?? item['title'] ?? '').toString().toLowerCase();
     final album = (item['album'] ?? '').toString().toLowerCase();
     final subtitle = (item['subtitle'] ?? '').toString().toLowerCase();
     
-    final blacklist = ['remix', 'cover', 'lofi', 'lo-fi', 'slowed', 'reverb', 'instrumental', 'mashup', '8d', 'bgm', 'bass boosted'];
-    for (final term in blacklist) {
-      if (title.contains(term) || subtitle.contains(term)) {
+    // Reject obvious unofficial remakes in the title itself
+    final titleBlacklist = ['remix', 'lofi', 'lo-fi', 'slowed', 'reverb', 'mashup', '8d', 'bass boosted', 'cover version'];
+    for (final term in titleBlacklist) {
+      if (title.contains(term)) {
         return false;
+      }
+    }
+    
+    if (strictMode) {
+      // Reject based on album being a compilation/playlist — NOT the title
+      // NOTE: Do NOT reject '(from movie)' in title — that IS how JioSaavn labels official songs!
+      final compilationBlacklist = [
+        'radio hour', 'jukebox', 'top 100', 'top 50',
+        'best of', 'collection', 'super hits', 'mega hits',
+        'essential', 'rewind', 'this is ', 'special edition',
+        'all time hits', 'golden hits', 'ultimate hits'
+      ];
+      for (final term in compilationBlacklist) {
+        if (album.contains(term)) {
+          return false;
+        }
       }
     }
     return true;
@@ -245,9 +347,21 @@ class SaavnService {
       artist = json['more_info']['singers'].toString();
     }
     
-    // Fallback if structure is flat
+    // Fallback if structure is flat (newer search API)
+    if (artist == 'Unknown Artist' && json['primary_artists'] != null && json['primary_artists'].toString().isNotEmpty) {
+      artist = json['primary_artists'].toString();
+    }
+    
+    if (artist == 'Unknown Artist' && json['singers'] != null && json['singers'].toString().isNotEmpty) {
+      artist = json['singers'].toString();
+    }
+    
+    if (artist == 'Unknown Artist' && json['music'] != null && json['music'].toString().isNotEmpty) {
+      artist = json['music'].toString();
+    }
+    
     if (artist == 'Unknown Artist' && json['subtitle'] != null) {
-       artist = json['subtitle'];
+       artist = json['subtitle'].toString();
     }
 
     String rawTitle = _cleanString(json['title'] ?? json['song']);
@@ -276,5 +390,45 @@ class SaavnService {
       audioUrl: '', // Will be fetched lazily on playback
       isTrending: false,
     );
+  }
+
+  static List<Song> _cachedRandomSongs = [];
+
+  static Future<List<Song>> getRecommendations(String songId, {String? artist}) async {
+    try {
+      if (_cachedRandomSongs.isEmpty) {
+        final homeData = await fetchTamilHomeData();
+        List<Song> allSongs = [];
+        
+        if (homeData['trending'] != null) {
+          allSongs.addAll(homeData['trending'] as List<Song>);
+        }
+        
+        // Instead of fetching from playlists (which often override cover images with compilation covers),
+        // we fetch from the global search API to guarantee original movie covers.
+        final futures = <Future<List<Song>>>[
+          searchTamilSongs('Tamil Hits', page: 1),
+          searchTamilSongs('Tamil Melody', page: 1),
+          searchTamilSongs('A.R. Rahman', page: 1),
+          searchTamilSongs('Anirudh', page: 1),
+          searchTamilSongs('Yuvan', page: 1),
+        ];
+        
+        final searchResults = await Future.wait(futures);
+        for (var songs in searchResults) {
+          allSongs.addAll(songs);
+        }
+        
+        _cachedRandomSongs = _filterUniqueSongs(allSongs);
+      }
+      
+      final results = List<Song>.from(_cachedRandomSongs);
+      results.shuffle();
+      return results;
+
+    } catch (e) {
+      print('Error fetching random recommendations: $e');
+    }
+    return [];
   }
 }

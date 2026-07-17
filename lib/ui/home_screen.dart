@@ -375,6 +375,58 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       const SizedBox(height: 24),
                     ],
 
+                    // New Tamil Releases & BGMs
+                    if (appProvider.newReleases.isNotEmpty) ...[
+                      const Text(
+                        'New Tamil Releases & BGMs',
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        height: 160,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          physics: const BouncingScrollPhysics(),
+                          itemCount: appProvider.newReleases.length > 20 ? 20 : appProvider.newReleases.length,
+                          itemBuilder: (context, index) {
+                            final song = appProvider.newReleases[index];
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 12),
+                              child: GestureDetector(
+                                onTap: () => playAndOpenPlayer(context, [song], 0),
+                                child: SizedBox(
+                                  width: 100,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(12),
+                                        child: Image.network(
+                                          song.coverUrl,
+                                          width: 100,
+                                          height: 100,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) => Container(width: 100, height: 100, color: Colors.grey),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        song.title,
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+
                     // Listen Again (Horizontal)
                     if (_listenAgainSongs.isNotEmpty) ...[
                       const Text(

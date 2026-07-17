@@ -60,6 +60,7 @@ dependencies:
   text_scroll: ^0.2.1
   google_sign_in: ^6.2.1
   html_unescape: ^2.0.0
+  google_generative_ai: ^0.4.7
 
 dev_dependencies:
   flutter_test:

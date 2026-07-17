@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -155,6 +156,54 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
     );
   }
 
+  void _showSortOptions(BuildContext context, bool isDark, Color textColor) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          margin: const EdgeInsets.all(16),
+          child: GlassContainer(
+            borderRadius: 20,
+            blurColor: isDark ? Colors.black.withOpacity(0.5) : Colors.white.withOpacity(0.5),
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Sort By', style: TextStyle(color: textColor, fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+                ListTile(
+                  leading: Icon(Icons.access_time, color: textColor),
+                  title: Text('Recently Added', style: TextStyle(color: textColor)),
+                  onTap: () {
+                    setState(() => _sortOption = 'recently_added');
+                    Navigator.pop(context);
+                  },
+                ),
+                ListTile(
+                  leading: Icon(Icons.sort_by_alpha, color: textColor),
+                  title: Text('Alphabetical', style: TextStyle(color: textColor)),
+                  onTap: () {
+                    setState(() => _sortOption = 'alphabetical');
+                    Navigator.pop(context);
+                  },
+                ),
+                ListTile(
+                  leading: Icon(Icons.person, color: textColor),
+                  title: Text('Artist', style: TextStyle(color: textColor)),
+                  onTap: () {
+                    setState(() => _sortOption = 'artist');
+                    Navigator.pop(context);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final appProvider = Provider.of<AppProvider>(context);
@@ -236,6 +285,19 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
               )
             : const BackButton(),
         actions: [
+          if (_isMultiSelectMode)
+            IconButton(
+              icon: Icon(Icons.select_all, color: textColor),
+              onPressed: () {
+                setState(() {
+                  if (_selectedSongs.length == displaySongs.length) {
+                    _selectedSongs.clear();
+                  } else {
+                    _selectedSongs.addAll(displaySongs.map((s) => s.id));
+                  }
+                });
+              },
+            ),
           if (_isMultiSelectMode &&
               _selectedSongs.isNotEmpty &&
               isCustomPlaylist)
@@ -440,80 +502,17 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.transparent,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: PopupMenuButton<String>(
-                            color: Theme.of(context).scaffoldBackgroundColor.withOpacity(0.95),
-                            icon: GlassContainer(
-                              borderRadius: 12,
-                              padding: const EdgeInsets.all(8),
-                              blurColor: isDark ? Colors.black.withOpacity(0.1) : Colors.white.withOpacity(0.1),
-                              border: Border.all(
-                                color: Colors.white.withOpacity(0.05),
-                                width: 0.5,
-                              ),
-                              child: Icon(Icons.sort, color: textColor, size: 20),
+                        GestureDetector(
+                          onTap: () => _showSortOptions(context, isDark, textColor),
+                          child: GlassContainer(
+                            borderRadius: 12,
+                            padding: const EdgeInsets.all(8),
+                            blurColor: isDark ? Colors.black.withOpacity(0.1) : Colors.white.withOpacity(0.1),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.05),
+                              width: 0.5,
                             ),
-                            elevation: 0,
-                            itemBuilder: (context) {
-                              return [
-                                PopupMenuItem(
-                                  enabled: false,
-                                  padding: EdgeInsets.zero,
-                                  child: GlassContainer(
-                                    hasBlur: true,
-                                    padding: const EdgeInsets.symmetric(vertical: 4),
-                                    borderRadius: 16,
-                                    blurColor: isDark
-                                        ? Colors.black.withOpacity(0.2)
-                                        : Colors.white.withOpacity(0.2),
-                                    border: Border.all(
-                                      color: Colors.white.withOpacity(0.1),
-                                      width: 0.5,
-                                    ),
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                                      children: [
-                                        InkWell(
-                                          onTap: () {
-                                            Navigator.pop(context);
-                                            setState(() => _sortOption = 'recently_added');
-                                          },
-                                          child: Padding(
-                                            padding: const EdgeInsets.all(12),
-                                            child: Text('Recently Added', style: TextStyle(color: textColor)),
-                                          ),
-                                        ),
-                                        InkWell(
-                                          onTap: () {
-                                            Navigator.pop(context);
-                                            setState(() => _sortOption = 'alphabetical');
-                                          },
-                                          child: Padding(
-                                            padding: const EdgeInsets.all(12),
-                                            child: Text('Alphabetical', style: TextStyle(color: textColor)),
-                                          ),
-                                        ),
-                                        InkWell(
-                                          onTap: () {
-                                            Navigator.pop(context);
-                                            setState(() => _sortOption = 'artist');
-                                          },
-                                          child: Padding(
-                                            padding: const EdgeInsets.all(12),
-                                            child: Text('Artist', style: TextStyle(color: textColor)),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ];
-                            },
+                            child: Icon(Icons.sort, color: textColor, size: 20),
                           ),
                         ),
                       ],
@@ -591,27 +590,45 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                                                   ),
                                                 ),
                                               )
-                                            : Image.network(
-                                                song.coverUrl,
-                                                width: 55,
-                                                height: 55,
-                                                fit: BoxFit.cover,
-                                                errorBuilder: (_, __, ___) =>
-                                                    Container(
-                                                      color: isDark
-                                                          ? Colors.white10
-                                                          : Colors.black12,
-                                                      alignment:
-                                                          Alignment.center,
-                                                      width: 55,
-                                                      height: 55,
-                                                      child: Icon(
-                                                        Icons.music_note,
-                                                        color: textColor
-                                                            .withOpacity(0.24),
-                                                      ),
-                                                    ),
-                                              ),
+                                            : (song.coverUrl.startsWith('file://')
+                                                ? Image.file(
+                                                    File(song.coverUrl.replaceFirst('file://', '')),
+                                                    width: 55,
+                                                    height: 55,
+                                                    fit: BoxFit.cover,
+                                                    errorBuilder: (_, __, ___) =>
+                                                        Container(
+                                                          color: isDark ? Colors.white10 : Colors.black12,
+                                                          alignment: Alignment.center,
+                                                          width: 55,
+                                                          height: 55,
+                                                          child: Icon(
+                                                            Icons.music_note,
+                                                            color: textColor.withOpacity(0.24),
+                                                          ),
+                                                        ),
+                                                  )
+                                                : Image.network(
+                                                    song.coverUrl,
+                                                    width: 55,
+                                                    height: 55,
+                                                    fit: BoxFit.cover,
+                                                    errorBuilder: (_, __, ___) =>
+                                                        Container(
+                                                          color: isDark
+                                                              ? Colors.white10
+                                                              : Colors.black12,
+                                                          alignment:
+                                                              Alignment.center,
+                                                          width: 55,
+                                                          height: 55,
+                                                          child: Icon(
+                                                            Icons.music_note,
+                                                            color: textColor
+                                                                .withOpacity(0.24),
+                                                          ),
+                                                        ),
+                                                  )),
                                       ),
                                       title: Text(
                                         song.title,

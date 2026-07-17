@@ -312,9 +312,7 @@ class _AuthenticationWrapperState extends State<AuthenticationWrapper> {
     final appProviderNonListening = Provider.of<AppProvider>(context, listen: false);
     playerService.songResolver ??= appProviderNonListening.resolveSongNow;
     playerService.onSongPlayed ??= appProviderNonListening.addToPlayHistory;
-    playerService.onQueueEmpty ??= ({bool forcePlay = false}) {
-      playerService.consumeAutoplay(appProviderNonListening.allSongs, forcePlay: forcePlay);
-    };
+
 
     if (_hasSeenIntro == null) {
       return const Scaffold(
@@ -385,9 +383,7 @@ class _MainScreenState extends State<MainScreen> {
     final playerService = Provider.of<PlayerService>(context, listen: false);
     final appProvider = Provider.of<AppProvider>(context, listen: false);
     playerService.onSongPlayed ??= appProvider.addToPlayHistory;
-    playerService.onQueueEmpty ??= ({bool forcePlay = false}) {
-      playerService.consumeAutoplay(appProvider.allSongs, forcePlay: forcePlay);
-    };
+
   }
 
   Future<void> _checkConnectivity() async {
@@ -430,19 +426,6 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context) {
     final playerService = Provider.of<PlayerService>(context);
     final appProvider = Provider.of<AppProvider>(context, listen: false);
-
-    // Ensure the autoplay queue is pre-populated whenever the UI builds
-    if (playerService.autoplayEnabled && playerService.autoplayQueue.isEmpty && appProvider.trendingSongs.isNotEmpty) {
-      Future.microtask(() => playerService.populateAutoplayQueue(appProvider.trendingSongs));
-    }
-
-    if (playerService.onQueueEmpty == null) {
-      playerService.onQueueEmpty = ({bool forcePlay = false}) {
-        if (playerService.autoplayEnabled && appProvider.trendingSongs.isNotEmpty) {
-          playerService.consumeAutoplay(appProvider.trendingSongs, forcePlay: forcePlay);
-        }
-      };
-    }
 
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;

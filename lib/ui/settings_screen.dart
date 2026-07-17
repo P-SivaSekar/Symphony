@@ -85,19 +85,22 @@ class SettingsScreen extends StatelessWidget {
                     appProvider.toggleNotifications();
                   },
                 ),
+
                 const SizedBox(height: 24),
-                _buildSectionHeader("Playback", textColor, primaryColor),
+                _buildSectionHeader("AI Recommendations", textColor, primaryColor),
                 _buildSwitchTile(
                   context: context,
                   icon: Icons.auto_awesome,
-                  title: "Autoplay",
-                  subtitle: "Play similar songs when queue ends",
+                  title: "Smart Autoplay",
+                  subtitle: "Use AI to suggest strictly matching Tamil songs when queue ends",
                   textColor: textColor,
                   value: playerService.autoplayEnabled,
                   onChanged: (val) {
                     playerService.toggleAutoplay();
                   },
                 ),
+
+
               ],
             ),
           ),
@@ -266,6 +269,43 @@ class SettingsScreen extends StatelessWidget {
           onChanged: onChanged,
         ),
       ),
+    );
+  }
+
+  void _showApiKeyDialog(BuildContext context, PlayerService playerService) {
+    final theme = Theme.of(context);
+    final controller = TextEditingController(text: playerService.geminiApiKey);
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: theme.colorScheme.surface,
+          title: Text("Gemini API Key", style: TextStyle(color: theme.colorScheme.onSurface)),
+          content: TextField(
+            controller: controller,
+            obscureText: true,
+            style: TextStyle(color: theme.colorScheme.onSurface),
+            decoration: InputDecoration(
+              hintText: "Enter your API key",
+              hintStyle: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.5)),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text("Cancel", style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.7))),
+            ),
+            TextButton(
+              onPressed: () {
+                playerService.setGeminiApiKey(controller.text.trim());
+                Navigator.pop(context);
+              },
+              child: Text("Save", style: TextStyle(color: theme.colorScheme.primary)),
+            ),
+          ],
+        );
+      },
     );
   }
 }

@@ -26,6 +26,7 @@ class AppProvider extends ChangeNotifier {
   User? _user;
   UserModel? _userProfile;
   List<Song> _trendingSongs = [];
+  List<Song> _newReleases = [];
   List<Song> _allSongs = [];
   List<Song> _favoriteSongs = [];
   bool _isLoading = false;
@@ -49,6 +50,7 @@ class AppProvider extends ChangeNotifier {
   User? get user => _user;
   UserModel? get userProfile => _userProfile;
   List<Song> get trendingSongs => _trendingSongs;
+  List<Song> get newReleases => _newReleases;
   List<Song> get allSongs => _allSongs;
   List<Song> get favoriteSongs => _favoriteSongs;
   bool get isLoading => _isLoading;
@@ -889,6 +891,8 @@ class AppProvider extends ChangeNotifier {
       
       // Update global playlists with Saavn playlists
       _globalPlaylists = List<Playlist>.from(homeData['playlists'] as List? ?? []);
+      
+      _newReleases = await SaavnService.fetchNewReleases();
       
       // Clear legacy allSongs since we fetch on demand
       _allSongs = [];

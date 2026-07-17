@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../models/song_model.dart';
 import '../services/player_service.dart';
 import '../ui/player_screen.dart';
+import '../providers/app_provider.dart';
 
 bool _isOpeningPlayer = false;
 

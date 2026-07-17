@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
@@ -71,6 +72,22 @@ class TrendingScreen extends StatelessWidget {
                                   width: 55,
                                   height: 55,
                                   fit: BoxFit.cover,
+                                )
+                              : song.coverUrl.startsWith('file://')
+                              ? Image.file(
+                                  File(song.coverUrl.replaceFirst('file://', '')),
+                                  width: 55,
+                                  height: 55,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    color: Colors.white10,
+                                    width: 55,
+                                    height: 55,
+                                    child: const Icon(
+                                      Icons.music_note,
+                                      color: Colors.white24,
+                                    ),
+                                  ),
                                 )
                               : Image.network(
                                   song.coverUrl,

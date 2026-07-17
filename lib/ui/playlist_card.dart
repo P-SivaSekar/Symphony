@@ -26,12 +26,6 @@ class _PlaylistCardState extends State<PlaylistCard> {
   }
 
   void _loadSongs() async {
-    // Only load if it's a global/saavn playlist without explicit songIds fetched yet
-    // Or if we need covers for it
-    if (widget.playlist.creatorId == 'system') {
-       // if it's downloaded/liked we might not want to fetch from saavn. But explore lists don't have creatorId system (except all_songs etc, which we don't show here anymore).
-    }
-    
     try {
       final songs = await SaavnService.fetchPlaylistSongs(widget.playlist.id);
       if (mounted) {
@@ -58,11 +52,11 @@ class _PlaylistCardState extends State<PlaylistCard> {
     }
     
     Widget background;
-    if (covers.length == 4) {
+    if (covers.length >= 4) {
       background = GridView.count(
         crossAxisCount: 2,
         physics: const NeverScrollableScrollPhysics(),
-        children: covers.map((url) => Image.network(url, fit: BoxFit.cover, errorBuilder: (_,__,___) => Container(color: Colors.grey))).toList(),
+        children: covers.take(4).map((url) => Image.network(url, fit: BoxFit.cover, errorBuilder: (_,__,___) => Container(color: Colors.grey))).toList(),
       );
     } else if (covers.isNotEmpty) {
       background = Image.network(covers.first, fit: BoxFit.cover, errorBuilder: (_,__,___) => Container(color: Colors.grey));
@@ -88,21 +82,23 @@ class _PlaylistCardState extends State<PlaylistCard> {
         // Actually PlaylistScreen automatically fetches them if it's a Saavn playlist!
         Navigator.push(context, MaterialPageRoute(builder: (_) => PlaylistScreen(playlist: widget.playlist)));
       },
-      child: AspectRatio(
-        aspectRatio: 1.0,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
               background,
-              ClipRRect(
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 2.0, sigmaY: 2.0),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.5),
-                    ),
+
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      Colors.transparent,
+                      Colors.black.withOpacity(0.4),
+                      Colors.black.withOpacity(0.8),
+                    ],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
                   ),
                 ),
               ),
@@ -110,38 +106,40 @@ class _PlaylistCardState extends State<PlaylistCard> {
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12.0),
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       if (widget.isTrending)
                         const Padding(
                           padding: EdgeInsets.only(bottom: 4.0),
                           child: Icon(Icons.local_fire_department, color: Colors.white, size: 28),
                         ),
-                      Text(
-                        widget.playlist.name,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 18,
-                          letterSpacing: 0.5,
-                          shadows: [Shadow(color: Colors.black87, blurRadius: 4, offset: Offset(0, 2))],
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      if (!_isLoading && songCount > 0)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6.0),
-                          child: Text(
-                            '$songCount Songs',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.8),
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                            ),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12.0),
+                        child: Text(
+                          widget.playlist.name,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            letterSpacing: 0.5,
+                            shadows: [
+                              Shadow(
+                                offset: Offset(0, 2),
+                                blurRadius: 4.0,
+                                color: Colors.black87,
+                              ),
+                              Shadow(
+                                offset: Offset(0, 1),
+                                blurRadius: 8.0,
+                                color: Colors.black,
+                              ),
+                            ],
                           ),
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
                         ),
+                      ),
                     ],
                   ),
                 ),
@@ -149,7 +147,6 @@ class _PlaylistCardState extends State<PlaylistCard> {
             ],
           ),
         ),
-      ),
     );
   }
 }

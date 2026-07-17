@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter/foundation.dart';
 import 'glassmorphic_component.dart';
 
 class IntroScreen extends StatefulWidget {
@@ -21,6 +22,7 @@ class _IntroScreenState extends State<IntroScreen> {
   }
 
   Future<void> _requestPermissions() async {
+    if (kIsWeb) return;
     try {
       await Permission.notification.request();
     } catch (e) {

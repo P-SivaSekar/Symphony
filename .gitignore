@@ -48,3 +48,10 @@ app.*.map.json
 *.apk
 *.mp4
 *.txt
+node_modules/
+scripts/node_modules/
+firestore_songs.json
+found_log.json
+hs_err_pid*.log
+*.iml
+pubspec.lock

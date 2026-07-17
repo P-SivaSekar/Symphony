@@ -4,6 +4,9 @@ import '../models/song_model.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/saavn_service.dart';
+import '../services/ai_recommendation_service.dart';
+import 'dart:math';
 
 class PlayerService extends ChangeNotifier {
   late AudioPlayer _audioPlayer;
@@ -15,7 +18,35 @@ class PlayerService extends ChangeNotifier {
   Duration _totalDuration = Duration.zero;
   bool _isInitialized = false;
   final List<String> _playNextOverrideIds = [];
-  bool _isConsumingAutoplay = false;
+
+  bool _autoplayEnabled = true;
+  bool _isFetchingAI = false;
+  int _sessionSeed = Random().nextInt(1000000);
+  String _geminiApiKey = const String.fromEnvironment('GEMINI_API_KEY', defaultValue: '');
+  
+  bool get autoplayEnabled => _autoplayEnabled;
+  bool get isFetchingAI => _isFetchingAI;
+  String get geminiApiKey => _geminiApiKey;
+
+  Future<void> setGeminiApiKey(String key) async {
+    _geminiApiKey = key;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('gemini_api_key', key);
+    notifyListeners();
+  }
+
+  Future<void> toggleAutoplay() async {
+    _autoplayEnabled = !_autoplayEnabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('autoplay_enabled', _autoplayEnabled);
+    notifyListeners();
+    
+    // If we just turned it on and we're at the end of the queue, fetch immediately
+    if (_autoplayEnabled && _currentIndex == _playlist.length - 1) {
+      _fetchAIRecommendations();
+    }
+  }
+
   Future<Song> Function(Song)? songResolver;
 
   AudioPlayer get audioPlayer => _audioPlayer;
@@ -30,7 +61,7 @@ class PlayerService extends ChangeNotifier {
       ? _playlist[_currentIndex]
       : null;
 
-  bool get hasNext => _audioPlayer.hasNext || _autoplayEnabled;
+  bool get hasNext => _audioPlayer.hasNext;
   bool get hasPrevious => _audioPlayer.hasPrevious;
 
   Map<String, String>? _getPlayHeaders(String url) {
@@ -88,8 +119,13 @@ class PlayerService extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       final savedPlaylistStr = prefs.getString('saved_playlist');
       final savedIndex = prefs.getInt('saved_index') ?? 0;
-      final savedAutoplay = prefs.getBool('autoplay_enabled');
-      if (savedAutoplay != null) _autoplayEnabled = savedAutoplay;
+      
+      _autoplayEnabled = prefs.getBool('autoplay_enabled') ?? true;
+      final savedKey = prefs.getString('gemini_api_key');
+      if (savedKey != null && savedKey.isNotEmpty) {
+        _geminiApiKey = savedKey;
+      }
+
       if (savedPlaylistStr != null) {
         final List<dynamic> decoded = jsonDecode(savedPlaylistStr);
         final List<Song> savedSongs = decoded.map((e) {
@@ -173,52 +209,9 @@ class PlayerService extends ChangeNotifier {
 
   bool _isShuffleModeEnabled = false;
   LoopMode _loopMode = LoopMode.off;
-  bool _autoplayEnabled = true;
-  List<Song> _autoplayQueue = [];
-  List<Song> get autoplayQueue => _autoplayQueue;
-
-  void populateAutoplayQueue(List<Song> allSongs) {
-    if (_autoplayQueue.length < 10) {
-      final available = allSongs.where((s) => !_autoplayQueue.any((aq) => aq.id == s.id)).toList();
-      available.shuffle();
-      _autoplayQueue.addAll(available.take(10 - _autoplayQueue.length));
-      notifyListeners();
-    }
-  }
-
-  Future<void> consumeAutoplay(List<Song> allSongs, {bool forcePlay = false}) async {
-    if (_isConsumingAutoplay) return;
-    _isConsumingAutoplay = true;
-    try {
-      if (_autoplayQueue.isEmpty) populateAutoplayQueue(allSongs);
-      if (_autoplayQueue.isNotEmpty) {
-        final song = _autoplayQueue.removeAt(0);
-        await addToQueue(song);
-        
-        if (forcePlay || _audioPlayer.processingState == ProcessingState.completed) {
-          final newIndex = _playlist.length - 1;
-          await Future.delayed(const Duration(milliseconds: 300));
-          await _audioPlayer.seek(Duration.zero, index: newIndex);
-          await play();
-        }
-        populateAutoplayQueue(allSongs);
-      }
-    } finally {
-      _isConsumingAutoplay = false;
-    }
-  }
-  void Function({bool forcePlay})? onQueueEmpty;
 
   bool get isShuffleModeEnabled => _isShuffleModeEnabled;
   LoopMode get loopMode => _loopMode;
-  bool get autoplayEnabled => _autoplayEnabled;
-
-  Future<void> toggleAutoplay() async {
-    _autoplayEnabled = !_autoplayEnabled;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('autoplay_enabled', _autoplayEnabled);
-    notifyListeners();
-  }
 
   Future<void> _initPlayer() async {
     // Small delay to ensure JustAudioBackground is fully ready
@@ -242,13 +235,9 @@ class PlayerService extends ChangeNotifier {
           }
         }
         if (_loopMode == LoopMode.off && !_audioPlayer.hasNext) {
-          if (_autoplayEnabled && onQueueEmpty != null) {
-            onQueueEmpty!(forcePlay: true);
-          } else {
-            // If we reached the end and not looping, stop. JustAudio handles looping internally.
-            _audioPlayer.pause();
-            _audioPlayer.seek(Duration.zero, index: 0);
-          }
+          // If we reached the end and not looping, stop. JustAudio handles looping internally.
+          _audioPlayer.pause();
+          _audioPlayer.seek(Duration.zero, index: 0);
         } else if (_loopMode == LoopMode.all && !_audioPlayer.hasNext) {
           _audioPlayer.seek(Duration.zero, index: 0);
           _audioPlayer.play();
@@ -289,6 +278,7 @@ class PlayerService extends ChangeNotifier {
 
         // Dynamically resolve adjacent (next/prev) tracks on track transition
         _preloadAdjacentSongs(index);
+
       } else if (index != null &&
           _sessionHistory.isEmpty &&
           index < _playlist.length) {
@@ -300,6 +290,11 @@ class PlayerService extends ChangeNotifier {
 
         // Preload next track for the first song
         _preloadAdjacentSongs(index);
+      }
+
+      // Trigger AI Autoplay if we're on the last track
+      if (index != null && index == _playlist.length - 1 && _autoplayEnabled && !_isFetchingAI && _loopMode == LoopMode.off) {
+        _fetchAIRecommendations();
       }
     });
 
@@ -316,6 +311,44 @@ class PlayerService extends ChangeNotifier {
     _audioPlayer.sequenceStateStream.listen((state) {
       notifyListeners(); // Notify when effective sequence changes (e.g., shuffle)
     });
+  }
+
+  Future<void> _fetchAIRecommendations() async {
+    if (_isFetchingAI || !_autoplayEnabled || _playlist.isEmpty) return;
+
+    _isFetchingAI = true;
+    notifyListeners();
+
+    try {
+      final current = _playlist[_currentIndex];
+      final recentIds = _sessionHistory.map((e) => e.id).toList();
+      
+      final newSongs = await SaavnService.getRecommendations(current.id, artist: current.artist);
+
+      // Filter out songs we've recently played
+      List<Song> filteredSongs = newSongs.where((s) => !recentIds.contains(s.id)).toList();
+
+      if (filteredSongs.isEmpty) {
+        // We exhausted this artist's top 50! Fallback to general hits
+        final fallback = await SaavnService.searchTamilSongs('Tamil Hits');
+        filteredSongs = fallback.where((s) => !recentIds.contains(s.id)).toList();
+        filteredSongs.shuffle();
+      }
+
+      if (filteredSongs.isNotEmpty) {
+        final modifiedSongs = <Song>[];
+        final songsToAdd = filteredSongs.take(15).toList();
+        for (int i = 0; i < songsToAdd.length; i++) {
+          modifiedSongs.add(songsToAdd[i].copyWith(isAutoplay: i > 0));
+        }
+        await addAllToQueue(modifiedSongs);
+      }
+    } catch (e) {
+      print('Error fetching Saavn recommendations: $e');
+    } finally {
+      _isFetchingAI = false;
+      notifyListeners();
+    }
   }
 
   Future<void> loadPlaylist(List<Song> songs, {int initialIndex = 0}) async {
@@ -392,11 +425,21 @@ class PlayerService extends ChangeNotifier {
         }).toList(),
       );
 
+      // Workaround for just_audio_background crash: disable shuffle before setting source
+      final wasShuffle = _audioPlayer.shuffleModeEnabled;
+      if (wasShuffle) {
+        await _audioPlayer.setShuffleModeEnabled(false);
+      }
+
       await _audioPlayer.setAudioSource(
         audioSource,
         initialIndex: _currentIndex,
         initialPosition: Duration.zero,
       );
+
+      if (wasShuffle) {
+        await _audioPlayer.setShuffleModeEnabled(true);
+      }
 
       if (kIsWeb) {
         await _audioPlayer.seek(Duration.zero, index: _currentIndex);
@@ -417,34 +460,31 @@ class PlayerService extends ChangeNotifier {
     if (index < 0 || index >= _playlist.length) return;
 
     final song = _playlist[index];
-    if (songResolver != null && 
-        !song.audioUrl.startsWith('file://') && 
-        !song.audioUrl.contains("cloudinary.com")) {
+    final needsResolve = song.audioUrl.isEmpty || song.audioUrl == "https://placeholder.com/empty.mp3";
+    
+    if (songResolver != null && needsResolve) {
       try {
         final resolved = await songResolver!(song);
         _playlist[index] = resolved;
         final source = _audioPlayer.audioSource as ConcatenatingAudioSource?;
         if (source != null && source.length > index) {
-          if (!_resolvedSessionSongIds.contains(resolved.id)) {
-            _resolvedSessionSongIds.add(resolved.id);
-            await source.removeAt(index);
-            await source.insert(
-              index,
-              AudioSource.uri(
-                Uri.parse(_getPlayableUrl(resolved.audioUrl)),
-                headers: _getPlayHeaders(resolved.audioUrl),
-                tag: MediaItem(
-                  id: resolved.id,
-                  album: "Symphony",
-                  title: resolved.title,
-                  artist: resolved.artist,
-                  artUri: (resolved.coverUrl.isNotEmpty && !resolved.coverUrl.startsWith('asset:'))
-                      ? Uri.parse(resolved.coverUrl)
-                      : null,
-                ),
+          await source.removeAt(index);
+          await source.insert(
+            index,
+            AudioSource.uri(
+              Uri.parse(_getPlayableUrl(resolved.audioUrl)),
+              headers: _getPlayHeaders(resolved.audioUrl),
+              tag: MediaItem(
+                id: resolved.id,
+                album: "Symphony",
+                title: resolved.title,
+                artist: resolved.artist,
+                artUri: (resolved.coverUrl.isNotEmpty && !resolved.coverUrl.startsWith('asset:'))
+                    ? Uri.parse(resolved.coverUrl)
+                    : null,
               ),
-            );
-          }
+            ),
+          );
         }
       } catch (e) {
         print("Error resolving track on seek: $e");
@@ -467,34 +507,33 @@ class PlayerService extends ChangeNotifier {
     if (nextEffective < indices.length) {
       final nextIndex = indices[nextEffective];
       final song = _playlist[nextIndex];
-      if (!song.audioUrl.startsWith('file://') && !song.audioUrl.contains("cloudinary.com")) {
+      final needsResolve = song.audioUrl.isEmpty || song.audioUrl == "https://placeholder.com/empty.mp3";
+      
+      if (needsResolve) {
         try {
           final resolved = await songResolver!(song);
           if (_playlist.length > nextIndex && _playlist[nextIndex].id == song.id) {
             _playlist[nextIndex] = resolved;
             final source = _audioPlayer.audioSource as ConcatenatingAudioSource?;
             if (source != null && source.length > nextIndex) {
-              if (!_resolvedSessionSongIds.contains(resolved.id)) {
-                _resolvedSessionSongIds.add(resolved.id);
-                await source.removeAt(nextIndex);
-                if (source.length >= nextIndex) {
-                  await source.insert(
-                    nextIndex,
-                    AudioSource.uri(
-                      Uri.parse(_getPlayableUrl(resolved.audioUrl)),
-                      headers: _getPlayHeaders(resolved.audioUrl),
-                      tag: MediaItem(
-                        id: resolved.id,
-                        album: "Symphony",
-                        title: resolved.title,
-                        artist: resolved.artist,
-                        artUri: (resolved.coverUrl.isNotEmpty && !resolved.coverUrl.startsWith('asset:'))
-                            ? Uri.parse(resolved.coverUrl)
-                            : null,
-                      ),
+              await source.removeAt(nextIndex);
+              if (source.length >= nextIndex) {
+                await source.insert(
+                  nextIndex,
+                  AudioSource.uri(
+                    Uri.parse(_getPlayableUrl(resolved.audioUrl)),
+                    headers: _getPlayHeaders(resolved.audioUrl),
+                    tag: MediaItem(
+                      id: resolved.id,
+                      album: "Symphony",
+                      title: resolved.title,
+                      artist: resolved.artist,
+                      artUri: (resolved.coverUrl.isNotEmpty && !resolved.coverUrl.startsWith('asset:'))
+                          ? Uri.parse(resolved.coverUrl)
+                          : null,
                     ),
-                  );
-                }
+                  ),
+                );
               }
             }
           }
@@ -509,34 +548,33 @@ class PlayerService extends ChangeNotifier {
     if (prevEffective >= 0) {
       final prevIndex = indices[prevEffective];
       final song = _playlist[prevIndex];
-      if (!song.audioUrl.startsWith('file://') && !song.audioUrl.contains("cloudinary.com")) {
+      final needsResolve = song.audioUrl.isEmpty || song.audioUrl == "https://placeholder.com/empty.mp3";
+      
+      if (needsResolve) {
         try {
           final resolved = await songResolver!(song);
           if (_playlist.length > prevIndex && _playlist[prevIndex].id == song.id) {
             _playlist[prevIndex] = resolved;
             final source = _audioPlayer.audioSource as ConcatenatingAudioSource?;
             if (source != null && source.length > prevIndex) {
-              if (!_resolvedSessionSongIds.contains(resolved.id)) {
-                _resolvedSessionSongIds.add(resolved.id);
-                await source.removeAt(prevIndex);
-                if (source.length >= prevIndex) {
-                  await source.insert(
-                    prevIndex,
-                    AudioSource.uri(
-                      Uri.parse(_getPlayableUrl(resolved.audioUrl)),
-                      headers: _getPlayHeaders(resolved.audioUrl),
-                      tag: MediaItem(
-                        id: resolved.id,
-                        album: "Symphony",
-                        title: resolved.title,
-                        artist: resolved.artist,
-                        artUri: (resolved.coverUrl.isNotEmpty && !resolved.coverUrl.startsWith('asset:'))
-                            ? Uri.parse(resolved.coverUrl)
-                            : null,
-                      ),
+              await source.removeAt(prevIndex);
+              if (source.length >= prevIndex) {
+                await source.insert(
+                  prevIndex,
+                  AudioSource.uri(
+                    Uri.parse(_getPlayableUrl(resolved.audioUrl)),
+                    headers: _getPlayHeaders(resolved.audioUrl),
+                    tag: MediaItem(
+                      id: resolved.id,
+                      album: "Symphony",
+                      title: resolved.title,
+                      artist: resolved.artist,
+                      artUri: (resolved.coverUrl.isNotEmpty && !resolved.coverUrl.startsWith('asset:'))
+                          ? Uri.parse(resolved.coverUrl)
+                          : null,
                     ),
-                  );
-                }
+                  ),
+                );
               }
             }
           }
@@ -570,6 +608,11 @@ class PlayerService extends ChangeNotifier {
 
     final source = _audioPlayer.audioSource as ConcatenatingAudioSource?;
     if (source != null) {
+      final wasShuffle = _audioPlayer.shuffleModeEnabled;
+      if (wasShuffle) {
+        await _audioPlayer.setShuffleModeEnabled(false);
+      }
+      
       await source.insert(
         insertIndex,
         AudioSource.uri(
@@ -614,6 +657,11 @@ class PlayerService extends ChangeNotifier {
 
     final source = _audioPlayer.audioSource as ConcatenatingAudioSource?;
     if (source != null) {
+      final wasShuffle = _audioPlayer.shuffleModeEnabled;
+      if (wasShuffle) {
+        await _audioPlayer.setShuffleModeEnabled(false);
+      }
+      
       await source.add(
         AudioSource.uri(
           Uri.parse(_getPlayableUrl(resolvedSong.audioUrl)),
@@ -631,6 +679,73 @@ class PlayerService extends ChangeNotifier {
           ),
         ),
       );
+      
+      if (wasShuffle) {
+        await _audioPlayer.setShuffleModeEnabled(true);
+      }
+    }
+    _savePlayerState();
+    notifyListeners();
+  }
+
+  Future<void> addAllToQueue(List<Song> songs) async {
+    if (songs.isEmpty) return;
+
+    List<Song> resolvedSongs = List<Song>.from(songs);
+    
+    if (songResolver != null) {
+      final futures = <Future<void>>[];
+      for (int i = 0; i < songs.length; i++) {
+        final song = songs[i];
+        final needsResolve = song.audioUrl.isEmpty || song.audioUrl == "https://placeholder.com/empty.mp3";
+        if (needsResolve) {
+          futures.add(() async {
+            try {
+              resolvedSongs[i] = await songResolver!(song);
+            } catch (e) {
+              print("Error resolving in addAllToQueue: $e");
+            }
+          }());
+        }
+      }
+      await Future.wait(futures);
+    }
+
+    if (_playlist.isEmpty) {
+      await loadPlaylist(resolvedSongs);
+      return;
+    }
+
+    _playlist.addAll(resolvedSongs);
+
+    final source = _audioPlayer.audioSource as ConcatenatingAudioSource?;
+    if (source != null) {
+      final wasShuffle = _audioPlayer.shuffleModeEnabled;
+      if (wasShuffle) {
+        await _audioPlayer.setShuffleModeEnabled(false);
+      }
+      
+      final audioSources = resolvedSongs.map((resolvedSong) => AudioSource.uri(
+        Uri.parse(_getPlayableUrl(resolvedSong.audioUrl)),
+        headers: _getPlayHeaders(resolvedSong.audioUrl),
+        tag: MediaItem(
+          id: resolvedSong.id,
+          album: "Symphony",
+          title: resolvedSong.title,
+          artist: resolvedSong.artist,
+          artUri:
+              (resolvedSong.coverUrl.isNotEmpty &&
+                  !resolvedSong.coverUrl.startsWith('asset:'))
+              ? Uri.parse(resolvedSong.coverUrl)
+              : null,
+        ),
+      )).toList();
+      
+      await source.addAll(audioSources);
+      
+      if (wasShuffle) {
+        await _audioPlayer.setShuffleModeEnabled(true);
+      }
     }
     _savePlayerState();
     notifyListeners();
@@ -732,9 +847,7 @@ class PlayerService extends ChangeNotifier {
   }
 
   Future<void> skipNext() async {
-    if (!_audioPlayer.hasNext && _autoplayEnabled && onQueueEmpty != null) {
-      onQueueEmpty!(forcePlay: true);
-    } else if (_audioPlayer.hasNext) {
+    if (_audioPlayer.hasNext) {
       final nextIdx = _audioPlayer.nextIndex;
       if (nextIdx != null) {
         await seekToTrack(nextIdx);
@@ -771,8 +884,17 @@ class PlayerService extends ChangeNotifier {
     
     _playlist.removeAt(index);
     final source = _audioPlayer.audioSource as ConcatenatingAudioSource?;
-    if (source != null) {
+    if (source != null && index < source.length) {
+      final wasShuffle = _audioPlayer.shuffleModeEnabled;
+      if (wasShuffle) {
+        await _audioPlayer.setShuffleModeEnabled(false);
+      }
+      
       await source.removeAt(index);
+      
+      if (wasShuffle) {
+        await _audioPlayer.setShuffleModeEnabled(true);
+      }
     }
     
     if (_currentIndex > index) {
