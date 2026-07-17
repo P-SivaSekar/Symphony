@@ -1,7 +1,7 @@
 # 🎵 Symphony
 
 <p align="center">
-  <img src="assets/images/logo.png" alt="Symphony Logo" width="120"/>
+  <img src="https://raw.githubusercontent.com/P-SivaSekar/Symphony/main/assets/app_icon.png" alt="Symphony Logo" width="120"/>
 </p>
 
 <p align="center">
