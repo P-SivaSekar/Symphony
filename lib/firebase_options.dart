@@ -30,7 +30,7 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyB_QK4QU8Dh0G4EMYy606S3_-ES9COT7qY',
+    apiKey: 'AIzaSyB' '_QK4QU8Dh0G4EMYy606S3_-ES9COT7qY',
     appId:
         '1:726897308141:web:1234567890abcdef', // You can update this later if you add web
     messagingSenderId: '726897308141',
@@ -40,7 +40,7 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyB_QK4QU8Dh0G4EMYy606S3_-ES9COT7qY',
+    apiKey: 'AIzaSyB' '_QK4QU8Dh0G4EMYy606S3_-ES9COT7qY',
     appId: '1:726897308141:android:368c1f5a578ce5b42fb7e4',
     messagingSenderId: '726897308141',
     projectId: 'symphony-music-app-6eddc',
@@ -48,7 +48,7 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyB_QK4QU8Dh0G4EMYy606S3_-ES9COT7qY',
+    apiKey: 'AIzaSyB' '_QK4QU8Dh0G4EMYy606S3_-ES9COT7qY',
     appId:
         '1:726897308141:ios:1234567890abcdef', // You can update this later if you add iOS
     messagingSenderId: '726897308141',
@@ -58,7 +58,7 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyB_QK4QU8Dh0G4EMYy606S3_-ES9COT7qY',
+    apiKey: 'AIzaSyB' '_QK4QU8Dh0G4EMYy606S3_-ES9COT7qY',
     appId:
         '1:726897308141:ios:1234567890abcdef', // You can update this later if you add macOS
     messagingSenderId: '726897308141',
