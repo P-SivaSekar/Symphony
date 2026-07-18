@@ -33,6 +33,28 @@
 
 ---
 
+## 🐛 Known Issues & Bugs
+
+- [ ] **Liked Songs Playlist Sync:** Liked songs are not showing up inside the Liked Playlist.
+- [ ] **Explore Page Playlist Duplication:** The explore page has redundant playlists (e.g., two Anirudh playlists containing similar songs).
+
+---
+
+## 🚀 Roadmap & Planned Enhancements
+
+### 🎶 Content & Curation
+- **Trending & New Releases:** Add sections/playlists dedicated to trending songs and new releases.
+- **Explore Page Revamp:** Redesign the explore page to showcase a diverse set of categories, genres, top charts, and search highlights (rather than displaying only playlists).
+
+### 🎨 User Interface (UI) Revamps
+- **Profile UI:** Revamp the user profile screen to look modern, clean, and interactive.
+- **Settings UI:** Redesign the settings interface for a more intuitive and visually appealing layout.
+
+### 📱 Mobile Features & Permissions
+- **Push Notification Permission:** Implement a prompt/permission request for push notifications on mobile devices, triggered during the first-time application launch after installation.
+
+---
+
 ## 📱 Android Installation
 
 1. **Download the APK directly:**
